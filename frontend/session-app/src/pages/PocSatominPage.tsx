@@ -463,6 +463,7 @@ export function PocSatominPage() {
     // 話者ごとの発言回数を計算
     const speakerCounts: { [key: string]: number } = {};
     transcripts.forEach(item => {
+      if (item.speaker === '判別中...') return;
       speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + 1;
     });
 
@@ -718,6 +719,7 @@ export function PocSatominPage() {
               // 話者ごとの発言回数を計算
               const speakerCounts: { [key: string]: number } = {};
               transcripts.forEach(item => {
+                if (item.speaker === '判別中...') return;
                 speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + 1;
               });
 
