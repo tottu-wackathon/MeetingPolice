@@ -916,17 +916,20 @@ export function PocSatominPage() {
                         <path d={pathD10} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                         <path d={pathD3} stroke="url(#alignStroke2)" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
                         {/* ポイント */}
-                        {points10.map((p, idx) => (
+                        {points10.map((p, idx) => {
+                          const isLast = idx === points10.length - 1;
+                          return (
                           <circle
                             key={idx}
                             cx={p.x}
                             cy={p.y}
-                            r={idx === points.length - 1 ? 2.8 : 2}
-                            fill={idx === points.length - 1 ? '#00e676' : '#00ffff'}
+                            r={isLast ? 2.8 : 2}
+                            fill={isLast ? '#00e676' : '#00ffff'}
                             stroke="#0a0e27"
                             strokeWidth="0.7"
                           />
-                        ))}
+                          );
+                        })}
                         {/* 最新ポイント（直近3件の末尾） */}
                         {lastPoint3 && (
                           <text
