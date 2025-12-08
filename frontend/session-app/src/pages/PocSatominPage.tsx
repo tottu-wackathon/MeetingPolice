@@ -818,26 +818,44 @@ export function PocSatominPage() {
               const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
               if (validItems.length === 0) return null;
 
-              // 直近10件をベースにしつつ、直近3件に重みを持たせて算出
-              const recentItems = validItems.slice(-10);
-              const weights = recentItems.map((_, idx) =>
-                idx >= recentItems.length - 3 ? 2 : 1
-              );
-              const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-              const avgAlignment = Math.round(
-                recentItems.reduce((sum, item, idx) => sum + item.alignment * weights[idx], 0) / totalWeight
-              );
+              const recent10 = validItems.slice(-10);
+              const recent3 = validItems.slice(-3);
+              const avgAlignment = recent3.length
+                ? Math.round(recent3.reduce((sum, item) => sum + item.alignment, 0) / recent3.length)
+                : 0;
+
               const padding = 5; // 両端が見切れないように少し余白
-              const points = recentItems.map((item, idx) => {
-                const x =
-                  recentItems.length === 1
-                    ? 50
-                    : padding + ((idx / (recentItems.length - 1)) * (100 - padding * 2));
-                const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment)); // 上が高スコア
-                return { x, y, value: item.alignment };
-              });
-              const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
-              const lastPoint = points[points.length - 1];
+
+              const toPoints = (items: typeof recent10) =>
+                items.map((item, idx) => {
+                  const x =
+                    items.length === 1
+                      ? 50
+                      : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
+                  const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
+                  return { x, y, value: item.alignment };
+                });
+
+              const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
+                if (pts.length === 0) return '';
+                if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+                let d = `M ${pts[0].x},${pts[0].y}`;
+                for (let i = 1; i < pts.length; i++) {
+                  const prev = pts[i - 1];
+                  const curr = pts[i];
+                  const mx = (prev.x + curr.x) / 2;
+                  const my = (prev.y + curr.y) / 2;
+                  d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
+                }
+                d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
+                return d;
+              };
+
+              const points10 = toPoints(recent10);
+              const points3 = toPoints(recent3);
+              const pathD10 = buildSmoothPath(points10);
+              const pathD3 = buildSmoothPath(points3);
+              const lastPoint3 = points3[points3.length - 1];
 
               return (
                 <div
@@ -874,6 +892,10 @@ export function PocSatominPage() {
                             <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
                             <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
                           </linearGradient>
+                          <linearGradient id="alignStroke2" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#ff8a65" stopOpacity="0.9" />
+                            <stop offset="100%" stopColor="#ff5252" stopOpacity="0.9" />
+                          </linearGradient>
                           <linearGradient id="alignFill" x1="0%" y1="0%" x2="0%" y2="100%">
                             <stop offset="0%" stopColor="rgba(0, 255, 255, 0.35)" />
                             <stop offset="100%" stopColor="rgba(0, 255, 255, 0)" />
@@ -883,17 +905,18 @@ export function PocSatominPage() {
                         <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
                         <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
                         {/* 面塗り */}
-                        {points.length > 1 && (
+                        {points10.length > 1 && (
                           <path
-                            d={`${pathD} L 100 100 L 0 100 Z`}
+                            d={`${pathD10} L ${100 - padding} 100 L ${padding} 100 Z`}
                             fill="url(#alignFill)"
                             opacity="0.6"
                           />
                         )}
                         {/* ライン */}
-                        <path d={pathD} stroke="url(#alignStroke)" strokeWidth="2.4" fill="none" />
+                        <path d={pathD10} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={pathD3} stroke="url(#alignStroke2)" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
                         {/* ポイント */}
-                        {points.map((p, idx) => (
+                        {points10.map((p, idx) => (
                           <circle
                             key={idx}
                             cx={p.x}
@@ -904,17 +927,17 @@ export function PocSatominPage() {
                             strokeWidth="0.7"
                           />
                         ))}
-                        {/* 最新ポイントの値ラベル */}
-                        {lastPoint && (
+                        {/* 最新ポイント（直近3件の末尾） */}
+                        {lastPoint3 && (
                           <text
-                            x={lastPoint.x}
-                            y={Math.max(8, lastPoint.y - 4)}
+                            x={lastPoint3.x}
+                            y={Math.max(10, lastPoint3.y - 6)}
                             textAnchor="middle"
                             fontSize="8"
-                            fill="#ffffff"
-                            style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.8))' }}
+                            fill="#ffdcc5"
+                            style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.8))', fontWeight: 700 }}
                           >
-                            {lastPoint.value}%
+                            {lastPoint3.value}%
                           </text>
                         )}
                       </svg>
