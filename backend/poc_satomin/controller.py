@@ -386,8 +386,8 @@ class POCController:
             counts[label] = counts.get(label, 0) + 1
         raw_label = max(counts, key=counts.get) if counts else None
         normalized = self._normalize_raw_label(job, raw_label)
-        friendly = self._speaker_name(job, normalized)
-        return friendly, normalized
+        # フロントには raw（正規化後）ラベルそのものを出す
+        return normalized, normalized
 
     def _split_long_text(self, text: str, max_length: int = 80, min_length: int = 25) -> list[str]:
         """長い文を句読点で分割する（短すぎる文は結合）"""
