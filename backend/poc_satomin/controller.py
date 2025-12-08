@@ -33,6 +33,7 @@ class PocJob:
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     speaker_labels: dict[str, str] = field(default_factory=dict)
     next_speaker_index: int = 1
+    next_unknown_index: int = 1
     next_entry_index: int = 1
     pending_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     processed_result_ids: set[str] = field(default_factory=set)
@@ -350,13 +351,26 @@ class POCController:
         for idx in range(0, len(pcm_bytes), chunk_size):
             yield pcm_bytes[idx : idx + chunk_size]
 
-    def _speaker_name(self, job: PocJob, raw_label: str | None) -> str:
-        """raw_label をそのままキーに使い、falsy な値でも区別できるよう文字列化して管理"""
-        if raw_label is None:
-            key = "__unknown__"
-        else:
+    def _normalize_raw_label(self, job: PocJob, raw_label: str | None) -> str:
+        """speaker ラベルが欠落している場合は、都度ユニークな unk ラベルを割り当てる"""
+        unknown_tokens = {"", "spk_unk", "__unknown__", "unknown", "unk", None}
+        if raw_label not in unknown_tokens:
             key_str = str(raw_label).strip()
-            key = key_str if key_str else "__unknown__"
+            if key_str and key_str.lower() not in unknown_tokens:
+                return key_str
+        # speaker ラベルが無い（または spk_unk）場合はユニークなラベルを振る
+        label = f"spk_unk_{job.next_unknown_index}"
+        job.next_unknown_index += 1
+        return label
+
+    def _is_unknown_label(self, raw_label: str | None) -> bool:
+        if raw_label is None:
+            return True
+        label = str(raw_label).strip().lower()
+        return not label or label in {"spk_unk", "__unknown__", "unknown", "unk"} or label.startswith("spk_unk_")
+
+    def _speaker_name(self, job: PocJob, raw_label: str | None) -> str:
+        key = self._normalize_raw_label(job, raw_label)
         if key not in job.speaker_labels:
             label = f"Speaker {job.next_speaker_index}"
             job.speaker_labels[key] = label
@@ -371,8 +385,9 @@ class POCController:
                 continue
             counts[label] = counts.get(label, 0) + 1
         raw_label = max(counts, key=counts.get) if counts else None
-        friendly = self._speaker_name(job, raw_label)
-        return friendly, (raw_label or "spk_unk")
+        normalized = self._normalize_raw_label(job, raw_label)
+        friendly = self._speaker_name(job, normalized)
+        return friendly, normalized
 
     def _split_long_text(self, text: str, max_length: int = 80, min_length: int = 25) -> list[str]:
         """長い文を句読点で分割する（短すぎる文は結合）"""
@@ -441,8 +456,10 @@ class POCController:
             # すでに表示した発話の話者ラベルは基本的に固定し、Transcribe の途中でラベルが揺れても変えない。
             # ただし「不明(spk_unk)」から「具体的な raw_label」に更新できる場合のみ、一度だけ生ラベルを保持する。
             current_raw = entry.get("raw_speaker", "spk_unk")
-            if current_raw in {"spk_unk", "__unknown__"} and raw_label not in {"spk_unk", "__unknown__"}:
+            if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
                 entry["raw_speaker"] = raw_label
+                # この後に同じ raw_label が来たら同じ Speaker に紐付けられるようにバインド
+                job.speaker_labels[raw_label] = entry["speaker"]
 
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
