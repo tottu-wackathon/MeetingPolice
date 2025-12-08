@@ -55,6 +55,9 @@ export function ResultPage() {
             color: palette[Math.floor(rand(i + 3) * palette.length)],
             rotation: rand(i + 4) * 360,
             scale: 0.7 + rand(i + 5) * 0.9,
+            width: 6 + rand(i + 6) * 10,
+            height: 10 + rand(i + 7) * 14,
+            drift: (rand(i + 8) - 0.5) * 50, // 左右に少し流れる
         }));
     }, [isSuccess]);
 
@@ -83,6 +86,9 @@ export function ResultPage() {
                                     backgroundColor: piece.color,
                                     transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
                                     willChange: 'transform, opacity',
+                                    width: `${piece.width}px`,
+                                    height: `${piece.height}px`,
+                                    ['--drift' as string]: `${piece.drift}px`,
                                 }}
                             />
                         ))}
