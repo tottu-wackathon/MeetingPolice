@@ -358,12 +358,6 @@ class POCController:
             job.next_speaker_index += 1
         return job.speaker_labels[key]
 
-    def _bind_raw_speaker(self, job: PocJob, raw_label: str | None, speaker_label: str) -> None:
-        """後から raw_label が分かった場合に、既存の話者ラベルにひも付け直すためのバインド"""
-        key = raw_label or "__unknown__"
-        if key not in job.speaker_labels:
-            job.speaker_labels[key] = speaker_label
-
     def _speaker_from_items(self, job: PocJob, alternative: Any) -> tuple[str, str]:
         counts: dict[str, int] = {}
         for item in getattr(alternative, "items", []) or []:
@@ -440,12 +434,10 @@ class POCController:
             await job.queue.put({"type": "transcript", "action": "append", "payload": self._public_payload(entry)})
         else:
             # すでに表示した発話の話者ラベルは基本的に固定し、Transcribe の途中でラベルが揺れても変えない。
-            # ただし「不明(spk_unk)」から「具体的な raw_label」に更新できる場合のみ一度だけアップグレードする。
+            # ただし「不明(spk_unk)」から「具体的な raw_label」に更新できる場合のみ、一度だけ生ラベルを保持する。
             current_raw = entry.get("raw_speaker", "spk_unk")
             if current_raw in {"spk_unk", "__unknown__"} and raw_label not in {"spk_unk", "__unknown__"}:
                 entry["raw_speaker"] = raw_label
-                # すでに付けた表示用ラベルを維持したまま、raw_label と紐付けておく
-                self._bind_raw_speaker(job, raw_label, entry["speaker"])
 
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
