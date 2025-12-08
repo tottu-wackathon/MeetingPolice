@@ -29,14 +29,15 @@ export function ResultPage() {
     }>>([]);
 
     useEffect(() => {
-        const data = location.state as ResultData;
+        // location.state が undefined でも落ちないようにガード
+        const data = location.state as ResultData | undefined;
         if (!data) {
             // データがない場合は元のページに戻る
             navigate('/poc_satomin');
             return;
         }
         setResultData(data);
-    }, [location, navigate]);
+    }, [location.state, navigate]);
 
     useEffect(() => {
         setDomReady(true);
@@ -67,7 +68,7 @@ export function ResultPage() {
     }, [isSuccess]);
 
     const confettiPortal = useMemo(() => {
-        if (!isSuccess || !domReady) return null;
+        if (!isSuccess || !domReady || typeof document === 'undefined') return null;
         return createPortal(
             <div className="confetti-container">
                 {confetti.map((piece) => (
