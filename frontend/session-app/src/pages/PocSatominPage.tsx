@@ -460,11 +460,12 @@ export function PocSatominPage() {
       ? Math.round(validItems.reduce((sum, item) => sum + item.alignment, 0) / validItems.length)
       : 0;
 
-    // 話者ごとの発言回数を計算
+    // 話者ごとの発話ボリューム（文字数）を計算
     const speakerCounts: { [key: string]: number } = {};
     transcripts.forEach(item => {
       if (item.speaker === '判別中...') return;
-      speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + 1;
+      const length = item.text.length;
+      speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + length;
     });
 
     navigate('/result', {
@@ -720,7 +721,8 @@ export function PocSatominPage() {
               const speakerCounts: { [key: string]: number } = {};
               transcripts.forEach(item => {
                 if (item.speaker === '判別中...') return;
-                speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + 1;
+                const length = item.text.length;
+                speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + length;
               });
 
               const totalCount = Object.values(speakerCounts).reduce((sum, count) => sum + count, 0);
