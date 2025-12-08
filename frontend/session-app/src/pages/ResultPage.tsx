@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
@@ -41,28 +41,6 @@ export function ResultPage() {
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
     const isSuccess = avgAlignment >= 60;
-
-    const confetti = useMemo(() => {
-        if (!isSuccess) return [];
-        const palette = ['#ff8a65', '#ffd54f', '#4fc3f7', '#ba68c8', '#00e676', '#ff5252', '#ffee58', '#80deea'];
-        const rand = (seed: number) => {
-            const x = Math.sin(seed) * 10000;
-            return x - Math.floor(x);
-        };
-        return Array.from({ length: 220 }).map((_, i) => ({
-            id: i,
-            left: rand(i) * 100,
-            delay: rand(i + 1) * 0.6,
-            duration: 4 + rand(i + 2) * 2.5,
-            color: palette[Math.floor(rand(i + 3) * palette.length)],
-            rotation: rand(i + 4) * 360,
-            scale: 0.7 + rand(i + 5) * 0.9,
-            width: 6 + rand(i + 6) * 10,
-            height: 10 + rand(i + 7) * 14,
-            drift: (rand(i + 8) - 0.5) * 50, // 左右に少し流れる
-            rounded: rand(i + 9) > 0.5,
-        }));
-    }, [isSuccess]);
 
     // キャンバス紙吹雪（よりリアルな揺れ・重なり）
     useEffect(() => {
@@ -162,28 +140,6 @@ export function ResultPage() {
                 {isSuccess && (
                     <div className="confetti-container">
                         <canvas ref={canvasRef} className="confetti-canvas" />
-                        {confetti.length > 0 && (
-                            <>
-                                {confetti.map((piece) => (
-                                    <span
-                                        key={piece.id}
-                                        className="confetti-piece"
-                                        style={{
-                                            left: `${piece.left}%`,
-                                            animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
-                                            backgroundColor: piece.color,
-                                            transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
-                                            willChange: 'transform, opacity',
-                                            width: `${piece.width}px`,
-                                            height: `${piece.height}px`,
-                                            ['--drift' as string]: `${piece.drift}px`,
-                                            borderRadius: piece.rounded ? '50%' : '2px',
-                                            boxShadow: `0 0 6px rgba(0,0,0,0.2)`,
-                                        }}
-                                    />
-                                ))}
-                            </>
-                        )}
                     </div>
                 )}
 
