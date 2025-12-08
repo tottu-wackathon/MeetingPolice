@@ -16,6 +16,15 @@ export function ResultPage() {
     const location = useLocation();
     const navigate = useNavigate();
     const [resultData, setResultData] = useState<ResultData | null>(null);
+    const [confetti, setConfetti] = useState<Array<{
+        id: number;
+        left: number;
+        delay: number;
+        duration: number;
+        color: string;
+        rotation: number;
+        scale: number;
+    }>>([]);
 
     useEffect(() => {
         const data = location.state as ResultData;
@@ -36,6 +45,21 @@ export function ResultPage() {
     const seconds = elapsedSeconds % 60;
     const isSuccess = avgAlignment >= 60;
 
+    useEffect(() => {
+        if (!isSuccess) return;
+        const palette = ['#ff8a65', '#ffd54f', '#4fc3f7', '#ba68c8', '#00e676', '#ff5252', '#ffee58', '#80deea'];
+        const pieces = Array.from({ length: 80 }).map((_, i) => ({
+            id: i,
+            left: Math.random() * 100,
+            delay: Math.random() * 0.6,
+            duration: 4 + Math.random() * 2,
+            color: palette[Math.floor(Math.random() * palette.length)],
+            rotation: Math.random() * 360,
+            scale: 0.6 + Math.random() * 0.8,
+        }));
+        setConfetti(pieces);
+    }, [isSuccess]);
+
     // 話者別発言割合を計算
     const speakerStats = speakerCounts ? Object.entries(speakerCounts).map(([speaker, count]) => {
         const totalCount = Object.values(speakerCounts).reduce((sum, c) => sum + c, 0);
@@ -49,6 +73,24 @@ export function ResultPage() {
     return (
         <Layout title="ミーティング結果" subtitle="お疲れさまでした！">
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+                {isSuccess && (
+                    <div className="confetti-container">
+                        {confetti.map((piece) => (
+                            <span
+                                key={piece.id}
+                                className="confetti-piece"
+                                style={{
+                                    left: `${piece.left}%`,
+                                    animationDelay: `${piece.delay}s`,
+                                    animationDuration: `${piece.duration}s`,
+                                    backgroundColor: piece.color,
+                                    transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
+                                }}
+                            />
+                        ))}
+                    </div>
+                )}
+
                 {isSuccess && (
                     <div style={{
                         padding: '32px',
