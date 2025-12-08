@@ -818,32 +818,102 @@ export function PocSatominPage() {
               const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
               if (validItems.length === 0) return null;
 
-              // 直近5件の平均一致度を計算
+              // 直近5件の平均一致度を計算し、ラインチャート用に変換
               const recentItems = validItems.slice(-5);
               const avgAlignment = Math.round(
                 recentItems.reduce((sum, item) => sum + item.alignment, 0) / recentItems.length
               );
-              const avgColor = avgAlignment > 60 ? '#4caf50' : avgAlignment > 40 ? '#ff9800' : '#f44336';
+              const points = recentItems.map((item, idx) => {
+                const x = recentItems.length === 1 ? 0 : (idx / (recentItems.length - 1)) * 100;
+                const y = 100 - item.alignment; // 上が高スコア
+                return { x, y, value: item.alignment };
+              });
+              const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
+              const lastPoint = points[points.length - 1];
 
               return (
-                <div style={{
-                  padding: '20px',
-                  textAlign: 'center',
-                  backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                  borderRadius: '8px',
-                  marginBottom: '16px',
-                  border: '2px solid #00ffff'
-                }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
-                    直近の平均一致度（最新5件）
-                  </p>
-                  <div style={{
-                    fontSize: '3em',
-                    fontWeight: 'bold',
-                    color: avgColor,
-                    lineHeight: '1'
-                  }}>
-                    {avgAlignment}%
+                <div
+                  className="alignment-card"
+                  style={{
+                    padding: '20px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    marginBottom: '16px',
+                    border: '2px solid #00ffff'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                    <div>
+                      <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
+                        直近の平均一致度（最新5件）
+                      </p>
+                      <div
+                        style={{
+                          fontSize: '2.6em',
+                          fontWeight: 'bold',
+                          color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336',
+                          lineHeight: '1',
+                          textShadow: '0 0 12px rgba(0,255,255,0.6)'
+                        }}
+                      >
+                        {avgAlignment}%
+                      </div>
+                      <p style={{ margin: '6px 0 0 0', fontSize: '0.85em', color: '#9be7ff' }}>
+                        警告ライン: 50% / 警察出動ライン: 30%
+                      </p>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
+                            <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
+                          </linearGradient>
+                          <linearGradient id="alignFill" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="rgba(0, 255, 255, 0.35)" />
+                            <stop offset="100%" stopColor="rgba(0, 255, 255, 0)" />
+                          </linearGradient>
+                        </defs>
+                        {/* 警告・警察ライン */}
+                        <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
+                        <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
+                        {/* 面塗り */}
+                        {points.length > 1 && (
+                          <path
+                            d={`${pathD} L 100 100 L 0 100 Z`}
+                            fill="url(#alignFill)"
+                            opacity="0.6"
+                          />
+                        )}
+                        {/* ライン */}
+                        <path d={pathD} stroke="url(#alignStroke)" strokeWidth="2.4" fill="none" />
+                        {/* ポイント */}
+                        {points.map((p, idx) => (
+                          <circle
+                            key={idx}
+                            cx={p.x}
+                            cy={p.y}
+                            r={idx === points.length - 1 ? 2.8 : 2}
+                            fill={idx === points.length - 1 ? '#00e676' : '#00ffff'}
+                            stroke="#0a0e27"
+                            strokeWidth="0.7"
+                          />
+                        ))}
+                        {/* 最新ポイントの値ラベル */}
+                        {lastPoint && (
+                          <text
+                            x={lastPoint.x}
+                            y={Math.max(8, lastPoint.y - 4)}
+                            textAnchor="middle"
+                            fontSize="8"
+                            fill="#ffffff"
+                            style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.8))' }}
+                          >
+                            {lastPoint.value}%
+                          </text>
+                        )}
+                      </svg>
+                    </div>
                   </div>
                 </div>
               );
