@@ -17,6 +17,7 @@ export function ResultPage() {
     const location = useLocation();
     const navigate = useNavigate();
     const [resultData, setResultData] = useState<ResultData | null>(null);
+    const [domReady, setDomReady] = useState(false);
     const [confetti, setConfetti] = useState<Array<{
         id: number;
         left: number;
@@ -36,6 +37,10 @@ export function ResultPage() {
         }
         setResultData(data);
     }, [location, navigate]);
+
+    useEffect(() => {
+        setDomReady(true);
+    }, []);
 
     if (!resultData) {
         return <Layout title="読み込み中..." subtitle=""><div>読み込み中...</div></Layout>;
@@ -62,7 +67,7 @@ export function ResultPage() {
     }, [isSuccess]);
 
     const confettiPortal = useMemo(() => {
-        if (!isSuccess || typeof document === 'undefined') return null;
+        if (!isSuccess || !domReady) return null;
         return createPortal(
             <div className="confetti-container">
                 {confetti.map((piece) => (
