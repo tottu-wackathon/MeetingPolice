@@ -129,15 +129,13 @@ class POCController:
             "is_final": False  # まだ確定じゃない
         }
 
-        # すぐにクライアントに通知（判別中は送らない）
-        if speaker != "判別中...":
-            await job.queue.put({"type": "realtime_classification", "payload": result_quick})
+        # すぐにクライアントに通知
+        await job.queue.put({"type": "realtime_classification", "payload": result_quick})
         
         # ステップ2: バックグラウンドでBedrockに送信（非同期）
-        if speaker != "判別中...":
-            task = asyncio.create_task(self._classify_with_bedrock(job, text, speaker, index))
-            job.pending_bedrock_tasks.add(task)
-            task.add_done_callback(lambda t: job.pending_bedrock_tasks.discard(t))
+        task = asyncio.create_task(self._classify_with_bedrock(job, text, speaker, index))
+        job.pending_bedrock_tasks.add(task)
+        task.add_done_callback(lambda t: job.pending_bedrock_tasks.discard(t))
         
         return result_quick
 
@@ -439,9 +437,7 @@ class POCController:
         return [s for s in final_result if s]
 
     async def _classify_entry(self, job: PocJob, entry: dict[str, Any]) -> None:
-        """エントリを分割してリアルタイム分析を実行（Speaker 未判別はスキップ）"""
-        if entry.get("speaker") == "判別中...":
-            return
+        """エントリを分割してリアルタイム分析を実行"""
         split_texts = self._split_long_text(entry["text"])
         for i, split_text in enumerate(split_texts):
             unique_index = entry["index"] * 1000 + i
