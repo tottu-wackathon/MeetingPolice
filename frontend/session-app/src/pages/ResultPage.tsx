@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
@@ -16,6 +16,8 @@ export function ResultPage() {
     const location = useLocation();
     const navigate = useNavigate();
     const [resultData, setResultData] = useState<ResultData | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const animationIdRef = useRef<number | null>(null);
 
     useEffect(() => {
         // location.state が undefined でも落ちないようにガード
@@ -62,6 +64,88 @@ export function ResultPage() {
         }));
     }, [isSuccess]);
 
+    // キャンバス紙吹雪（よりリアルな揺れ・重なり）
+    useEffect(() => {
+        if (!isSuccess) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let frameId: number;
+        let pIndex = 0;
+        const particles: Record<number, any> = {};
+
+        const resize = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        };
+        resize();
+        window.addEventListener('resize', resize);
+
+        const getRandom = (min: number, max: number) => Math.random() * (max - min) + min;
+
+        function Dot(x: number, y: number, vx: number, vy: number, color: string) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.color = color;
+            particles[pIndex] = this;
+            this.id = pIndex;
+            pIndex++;
+            this.life = 0;
+            this.maxlife = 300;
+            this.degree = getRandom(0, 360);
+            this.size = Math.floor(getRandom(6, 12));
+        }
+
+        Dot.prototype.draw = function () {
+            this.degree += 1;
+            this.vx *= 0.99;
+            this.vy *= 0.995;
+            this.x += this.vx + Math.cos(this.degree * Math.PI / 600);
+            this.y += this.vy;
+            const width = this.size;
+            const height = Math.cos(this.degree * Math.PI / 40) * this.size;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + width / 2, this.y + height);
+            ctx.lineTo(this.x + width, this.y);
+            ctx.lineTo(this.x + width / 2, this.y - height);
+            ctx.closePath();
+            ctx.fill();
+            this.life++;
+            if (this.life >= this.maxlife) {
+                delete particles[this.id];
+            }
+        };
+
+        const palette = ['#ED1A3D', '#FFEB3D', '#009688', '#0693e3', '#ffee58', '#ff8a65', '#ba68c8'];
+
+        const loop = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if ((frameId || 0) % 2 === 0) {
+                new (Dot as any)(canvas.width * Math.random(), -canvas.height / 4, getRandom(-3, 3), getRandom(2, 5), palette[Math.floor(Math.random() * palette.length)]);
+                new (Dot as any)(canvas.width * Math.random(), -canvas.height / 3, getRandom(-3, 3), getRandom(2, 5), palette[Math.floor(Math.random() * palette.length)]);
+                new (Dot as any)(canvas.width * Math.random(), -canvas.height / 2, getRandom(-3, 3), getRandom(2, 5), palette[Math.floor(Math.random() * palette.length)]);
+            }
+            Object.keys(particles).forEach((id) => {
+                particles[Number(id)].draw();
+            });
+            frameId = requestAnimationFrame(loop);
+            animationIdRef.current = frameId;
+        };
+
+        loop();
+
+        return () => {
+            if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current);
+            window.removeEventListener('resize', resize);
+        };
+    }, [isSuccess]);
+
     // 話者別発言割合を計算
     const speakerStats = speakerCounts ? Object.entries(speakerCounts).map(([speaker, count]) => {
         const totalCount = Object.values(speakerCounts).reduce((sum, c) => sum + c, 0);
@@ -75,28 +159,33 @@ export function ResultPage() {
     return (
         <Layout title="ミーティング結果" subtitle="お疲れさまでした！">
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                {isSuccess && confetti.length > 0 && (
+                {isSuccess && (
                     <div className="confetti-container">
-                        {confetti.map((piece) => (
-                            <span
-                                key={piece.id}
-                                className="confetti-piece"
-                        style={{
-                            left: `${piece.left}%`,
-                            animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
-                            backgroundColor: piece.color,
-                            transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
-                            willChange: 'transform, opacity',
-                            width: `${piece.width}px`,
-                            height: `${piece.height}px`,
-                            ['--drift' as string]: `${piece.drift}px`,
-                            borderRadius: piece.rounded ? '50%' : '2px',
-                            boxShadow: `0 0 6px rgba(0,0,0,0.2)`,
-                        }}
-                    />
-                ))}
-            </div>
-        )}
+                        <canvas ref={canvasRef} className="confetti-canvas" />
+                        {confetti.length > 0 && (
+                            <>
+                                {confetti.map((piece) => (
+                                    <span
+                                        key={piece.id}
+                                        className="confetti-piece"
+                                        style={{
+                                            left: `${piece.left}%`,
+                                            animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
+                                            backgroundColor: piece.color,
+                                            transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
+                                            willChange: 'transform, opacity',
+                                            width: `${piece.width}px`,
+                                            height: `${piece.height}px`,
+                                            ['--drift' as string]: `${piece.drift}px`,
+                                            borderRadius: piece.rounded ? '50%' : '2px',
+                                            boxShadow: `0 0 6px rgba(0,0,0,0.2)`,
+                                        }}
+                                    />
+                                ))}
+                            </>
+                        )}
+                    </div>
+                )}
 
                 {isSuccess && (
                     <div style={{
