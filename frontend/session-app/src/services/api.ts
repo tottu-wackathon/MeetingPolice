@@ -62,6 +62,7 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
     status: string;
     session_id: string;
     token: string;
+    api_key: string;
   }>(`/session/meetings/${meetingId}/join`, { method: 'POST' });
 
   return {
@@ -70,9 +71,36 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
     status: response.status,
     sessionId: response.session_id,
     token: response.token,
+    apiKey: response.api_key,
     participants: [
       { id: 'me', name: 'You', role: 'host', isSpeaking: false },
       { id: 'cohost', name: 'Co-host', role: 'guest', isSpeaking: true },
+    ],
+  };
+}
+
+export async function createMeetingSession(title: string, scheduledFor?: string): Promise<MeetingSession> {
+  const response = await request<{
+    meeting_id: string;
+    title: string;
+    status: string;
+    session_id: string;
+    token: string;
+    api_key: string;
+  }>('/session/meetings', {
+    method: 'POST',
+    body: JSON.stringify({ title, scheduled_for: scheduledFor }),
+  });
+
+  return {
+    meetingId: response.meeting_id,
+    title: response.title,
+    status: response.status,
+    sessionId: response.session_id,
+    token: response.token,
+    apiKey: response.api_key,
+    participants: [
+      { id: 'host', name: 'Host', role: 'host', isSpeaking: false },
     ],
   };
 }

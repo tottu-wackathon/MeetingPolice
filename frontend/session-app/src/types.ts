@@ -11,6 +11,7 @@ export type MeetingSession = {
   status: string;
   sessionId: string;
   token: string;
+  apiKey: string;
   participants: Participant[];
 };
 
@@ -81,4 +82,12 @@ export type PocAnalysisResult = {
   sentiment: Record<string, unknown>;
   transcript_sample: PocTranscript[];
   guidance: string[];
+};
+
+export type LiveTranscript = {
+  meetingId: string;
+  transcript: string;
+  sentiment: string;
+  timestamp: string;
+  speaker?: string;
 };

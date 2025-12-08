@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MeetingSession, Participant } from '../types';
-import { joinMeeting } from '../services/api';
+import { createMeetingSession, joinMeeting } from '../services/api';
 
 export function useMeetingSession() {
   const [session, setSession] = useState<MeetingSession | null>(null);
@@ -21,6 +21,22 @@ export function useMeetingSession() {
       setStatus('error');
       setSession(null);
       const message = err instanceof Error ? err.message : '参加に失敗しました';
+      setError(message);
+      throw err;
+    }
+  };
+
+  const create = async (title: string, scheduledFor?: string) => {
+    setStatus('connecting');
+    setError(null);
+    try {
+      const data = await createMeetingSession(title, scheduledFor);
+      setSession(data);
+      setStatus('connected');
+    } catch (err) {
+      setStatus('error');
+      setSession(null);
+      const message = err instanceof Error ? err.message : 'セッションの作成に失敗しました';
       setError(message);
       throw err;
     }
@@ -55,6 +71,7 @@ export function useMeetingSession() {
     handRaised,
     status,
     error,
+    createMeeting: create,
     joinMeeting: connect,
     leaveMeeting: leave,
     toggleMute,
