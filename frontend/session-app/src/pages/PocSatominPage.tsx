@@ -819,9 +819,9 @@ export function PocSatominPage() {
               if (validItems.length === 0) return null;
 
               const recent10 = validItems.slice(-10);
-              const recent3 = validItems.slice(-3);
-              const avgAlignment = recent3.length
-                ? Math.round(recent3.reduce((sum, item) => sum + item.alignment, 0) / recent3.length)
+              const recent5 = validItems.slice(-5);
+              const avgAlignment = recent5.length
+                ? Math.round(recent5.reduce((sum, item) => sum + item.alignment, 0) / recent5.length)
                 : 0;
 
               const padding = 8; // 両端が見切れないように少し余白
@@ -860,12 +860,17 @@ export function PocSatominPage() {
               };
 
               const weightedAvgPoints = (() => {
-                const weights = recent10.map((_, idx) => (idx >= recent10.length - 3 ? 2 : 1));
-                const totalWeight = weights.reduce((s, w) => s + w, 0) || 1;
+                const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 2 : 1));
+                const cumulativeWeights: number[] = [];
+                let sumW = 0;
+                weights.forEach((w) => {
+                  sumW += w;
+                  cumulativeWeights.push(sumW);
+                });
                 let cum = 0;
                 return recent10.map((item, idx) => {
                   cum += item.alignment * weights[idx];
-                  const avg = cum / weights.slice(0, idx + 1).reduce((s, w) => s + w, 0);
+                  const avg = cum / (cumulativeWeights[idx] || 1);
                   return { alignment: avg };
                 });
               })();
@@ -923,19 +928,44 @@ export function PocSatominPage() {
                         <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
                         <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
                         {/* 棒グラフ: 発話ごとのスコア */}
-                        {bars.map((b, idx) => (
-                          <rect
-                            key={idx}
-                            x={b.x}
-                            y={b.y}
-                            width={barWidth * 0.8}
-                            height={b.height}
-                            fill="rgba(0,255,255,0.25)"
-                            stroke="rgba(0,255,255,0.5)"
-                            strokeWidth="0.8"
-                            rx="1.5"
-                          />
-                        ))}
+                        {bars.map((b, idx) => {
+                          const barColor =
+                            b.value <= 0
+                              ? 'rgba(255, 255, 255, 0.2)'
+                              : b.value <= 30
+                                ? '#f44336'
+                                : b.value <= 50
+                                  ? '#ff9800'
+                                  : 'rgba(0,255,255,0.35)';
+                          const strokeColor =
+                            b.value <= 30 ? '#ff1744' : b.value <= 50 ? '#ffb74d' : 'rgba(0,255,255,0.6)';
+                          return (
+                            <g key={idx}>
+                              <rect
+                                x={b.x}
+                                y={b.y}
+                                width={barWidth * 0.8}
+                                height={b.height}
+                                fill={barColor}
+                                stroke={strokeColor}
+                                strokeWidth="0.8"
+                                rx="1.5"
+                              />
+                              {b.value <= 0 && (
+                                <text
+                                  x={b.x + (barWidth * 0.8) / 2}
+                                  y={100 - 2}
+                                  textAnchor="middle"
+                                  fontSize="9"
+                                  fill="#ffca28"
+                                  style={{ filter: 'drop-shadow(0 0 3px rgba(0,0,0,0.7))' }}
+                                >
+                                  ⚠️
+                                </text>
+                              )}
+                            </g>
+                          );
+                        })}
                         {/* ライン（加重平均の推移） */}
                         <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                         {/* ポイント（平均） */}
