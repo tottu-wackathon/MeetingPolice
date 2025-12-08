@@ -71,10 +71,10 @@ export function ResultPage() {
                         className="confetti-piece"
                         style={{
                             left: `${piece.left}%`,
-                            animationDelay: `${piece.delay}s`,
-                            animationDuration: `${piece.duration}s`,
+                            animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
                             backgroundColor: piece.color,
                             transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
+                            willChange: 'transform, opacity',
                         }}
                     />
                 ))}

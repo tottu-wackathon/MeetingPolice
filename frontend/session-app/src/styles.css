@@ -216,7 +216,7 @@ button:active {
   bottom: 0;
   pointer-events: none;
   overflow: hidden;
-  z-index: 9999;
+  z-index: 2147483000;
 }
 
 .confetti-piece {
