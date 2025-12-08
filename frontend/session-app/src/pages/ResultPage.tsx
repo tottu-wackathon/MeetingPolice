@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
@@ -16,15 +16,6 @@ export function ResultPage() {
     const location = useLocation();
     const navigate = useNavigate();
     const [resultData, setResultData] = useState<ResultData | null>(null);
-    const [confetti, setConfetti] = useState<Array<{
-        id: number;
-        left: number;
-        delay: number;
-        duration: number;
-        color: string;
-        rotation: number;
-        scale: number;
-    }>>([]);
 
     useEffect(() => {
         // location.state が undefined でも落ちないようにガード
@@ -49,19 +40,22 @@ export function ResultPage() {
     const seconds = elapsedSeconds % 60;
     const isSuccess = avgAlignment >= 60;
 
-    useEffect(() => {
-        if (!isSuccess) return;
+    const confetti = useMemo(() => {
+        if (!isSuccess) return [];
         const palette = ['#ff8a65', '#ffd54f', '#4fc3f7', '#ba68c8', '#00e676', '#ff5252', '#ffee58', '#80deea'];
-        const pieces = Array.from({ length: 120 }).map((_, i) => ({
+        const rand = (seed: number) => {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        };
+        return Array.from({ length: 120 }).map((_, i) => ({
             id: i,
-            left: Math.random() * 100,
-            delay: Math.random() * 0.6,
-            duration: 4 + Math.random() * 2.5,
-            color: palette[Math.floor(Math.random() * palette.length)],
-            rotation: Math.random() * 360,
-            scale: 0.7 + Math.random() * 0.9,
+            left: rand(i) * 100,
+            delay: rand(i + 1) * 0.6,
+            duration: 4 + rand(i + 2) * 2.5,
+            color: palette[Math.floor(rand(i + 3) * palette.length)],
+            rotation: rand(i + 4) * 360,
+            scale: 0.7 + rand(i + 5) * 0.9,
         }));
-        setConfetti(pieces);
     }, [isSuccess]);
 
     // 話者別発言割合を計算
@@ -77,7 +71,7 @@ export function ResultPage() {
     return (
         <Layout title="ミーティング結果" subtitle="お疲れさまでした！">
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                {isSuccess && (
+                {isSuccess && confetti.length > 0 && (
                     <div className="confetti-container">
                         {confetti.map((piece) => (
                             <span
