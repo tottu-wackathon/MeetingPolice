@@ -858,11 +858,8 @@ export function PocSatominPage() {
                       >
                         {avgAlignment}%
                       </div>
-                      <p style={{ margin: '6px 0 0 0', fontSize: '0.85em', color: '#9be7ff' }}>
-                        警告ライン: 50% / 警察出動ライン: 30%
-                      </p>
                     </div>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1.2 }}>
                       <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
                         <defs>
                           <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
