@@ -31,7 +31,7 @@ class PocJob:
     status: str = "processing"
     transcripts: list[dict[str, Any]] = field(default_factory=list)
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    speaker_labels: dict[str, str] = field(default_factory=lambda: {"spk_unk": "Speaker0"})
+    speaker_labels: dict[str, str] = field(default_factory=lambda: {"spk_unk": "判別中..."})
     next_speaker_index: int = 1
     next_entry_index: int = 1
     pending_results: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -118,7 +118,7 @@ class POCController:
         # ステップ1: キーワードベースの簡易分類（即座に返す）
         category_quick = _guess_category(text)
         alignment_quick = self._calculate_alignment(text, job.agenda_text)
-        
+
         result_quick = {
             "index": index,
             "text": text,
@@ -128,14 +128,16 @@ class POCController:
             "method": "keyword",  # キーワードベース
             "is_final": False  # まだ確定じゃない
         }
-        
-        # すぐにクライアントに通知
-        await job.queue.put({"type": "realtime_classification", "payload": result_quick})
+
+        # すぐにクライアントに通知（判別中は送らない）
+        if speaker != "判別中...":
+            await job.queue.put({"type": "realtime_classification", "payload": result_quick})
         
         # ステップ2: バックグラウンドでBedrockに送信（非同期）
-        task = asyncio.create_task(self._classify_with_bedrock(job, text, speaker, index))
-        job.pending_bedrock_tasks.add(task)
-        task.add_done_callback(lambda t: job.pending_bedrock_tasks.discard(t))
+        if speaker != "判別中...":
+            task = asyncio.create_task(self._classify_with_bedrock(job, text, speaker, index))
+            job.pending_bedrock_tasks.add(task)
+            task.add_done_callback(lambda t: job.pending_bedrock_tasks.discard(t))
         
         return result_quick
 
@@ -365,8 +367,8 @@ class POCController:
     def _speaker_name(self, job: PocJob, raw_label: str | None) -> str:
         key = self._normalize_raw_label(raw_label)
         if key == "spk_unk":
-            # spk_unk は常に Speaker0 に固定
-            job.speaker_labels.setdefault("spk_unk", "Speaker0")
+            # spk_unk は常に「判別中...」に固定
+            job.speaker_labels.setdefault("spk_unk", "判別中...")
             return job.speaker_labels["spk_unk"]
         if key not in job.speaker_labels:
             label = f"Speaker {job.next_speaker_index}"
@@ -436,6 +438,15 @@ class POCController:
         
         return [s for s in final_result if s]
 
+    async def _classify_entry(self, job: PocJob, entry: dict[str, Any]) -> None:
+        """エントリを分割してリアルタイム分析を実行（Speaker 未判別はスキップ）"""
+        if entry.get("speaker") == "判別中...":
+            return
+        split_texts = self._split_long_text(entry["text"])
+        for i, split_text in enumerate(split_texts):
+            unique_index = entry["index"] * 1000 + i
+            asyncio.create_task(self.classify_realtime(job.job_id, split_text, entry["speaker"], unique_index))
+
     async def _handle_result(self, job: PocJob, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool) -> None:
         entry = job.pending_results.get(result_id)
         if not entry:
@@ -463,14 +474,8 @@ class POCController:
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
                     await self._finalize_result(job, result_id)
-                    # 最終結果が出たら、長い文を分割して分析（全文を分析）
-                    split_texts = self._split_long_text(text)
-                    print(f"📝 元の文: {text}")
-                    print(f"✂️ 分割結果: {split_texts}")
-                    for i, split_text in enumerate(split_texts):
-                        # 各分割文に一意のindexを割り当て
-                        unique_index = entry["index"] * 1000 + i
-                        asyncio.create_task(self.classify_realtime(job.job_id, split_text, speaker_label, unique_index))
+                    # 最終結果が出たら全文を分析（未判別はスキップ）
+                    await self._classify_entry(job, entry)
                 return
             entry["text"] = text
             await job.queue.put({"type": "transcript", "action": "update", "payload": self._public_payload(entry)})
@@ -478,14 +483,7 @@ class POCController:
         # 最終結果が出たら、必ず分析を実行（全文を分析）
         if is_final:
             await self._finalize_result(job, result_id)
-            # 長い文を分割してリアルタイム分析を開始
-            split_texts = self._split_long_text(entry["text"])
-            print(f"📝 元の文: {entry['text']}")
-            print(f"✂️ 分割結果: {split_texts}")
-            for i, split_text in enumerate(split_texts):
-                # 各分割文に一意のindexを割り当て（元のindex * 1000 + 分割番号）
-                unique_index = entry["index"] * 1000 + i
-                asyncio.create_task(self.classify_realtime(job.job_id, split_text, entry["speaker"], unique_index))
+            await self._classify_entry(job, entry)
 
     async def _finalize_result(self, job: PocJob, result_id: str) -> None:
         entry = job.pending_results.pop(result_id, None)
