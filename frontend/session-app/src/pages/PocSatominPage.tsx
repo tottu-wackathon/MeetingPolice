@@ -331,7 +331,7 @@ export function PocSatominPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // 直近10件の平均一致度をチェック
+  // 直近5件の平均一致度をチェック
   useEffect(() => {
     if (status !== 'streaming' || realtimeClassifications.length === 0) {
       // ストリーミング中でない場合はアラートをクリア
@@ -354,8 +354,8 @@ export function PocSatominPage() {
       return;
     }
 
-    // 直近10件の平均一致度を計算
-    const recentItems = validItems.slice(-10);
+    // 直近5件の平均一致度を計算
+    const recentItems = validItems.slice(-5);
     const avgAlignment = Math.round(
       recentItems.reduce((sum, item) => sum + item.alignment, 0) / recentItems.length
     );
@@ -794,8 +794,8 @@ export function PocSatominPage() {
               const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
               if (validItems.length === 0) return null;
 
-              // 直近10件の平均一致度を計算
-              const recentItems = validItems.slice(-10);
+              // 直近5件の平均一致度を計算
+              const recentItems = validItems.slice(-5);
               const avgAlignment = Math.round(
                 recentItems.reduce((sum, item) => sum + item.alignment, 0) / recentItems.length
               );
@@ -811,7 +811,7 @@ export function PocSatominPage() {
                   border: '2px solid #00ffff'
                 }}>
                   <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
-                    直近の平均一致度（最新10件）
+                    直近の平均一致度（最新5件）
                   </p>
                   <div style={{
                     fontSize: '3em',
