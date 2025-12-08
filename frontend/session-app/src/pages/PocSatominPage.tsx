@@ -723,11 +723,11 @@ export function PocSatominPage() {
                 speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + 1;
               });
 
-              const totalCount = transcripts.length;
+              const totalCount = Object.values(speakerCounts).reduce((sum, count) => sum + count, 0);
               const speakerStats = Object.entries(speakerCounts).map(([speaker, count]) => ({
                 speaker,
                 count,
-                percentage: Math.round((count / totalCount) * 100)
+                percentage: totalCount > 0 ? Math.round((count / totalCount) * 100) : 0
               })).sort((a, b) => b.count - a.count);
 
               return (
