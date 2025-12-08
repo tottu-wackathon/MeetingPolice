@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { ControlBar } from '../components/ControlBar';
 import { Layout } from '../components/Layout';
 import { MetricsPanel } from '../components/MetricsPanel';
@@ -13,7 +13,6 @@ export function SessionPage() {
     session,
     status,
     error,
-    createMeeting,
     joinMeeting,
     leaveMeeting,
     isMuted,
@@ -26,27 +25,8 @@ export function SessionPage() {
   const { samples } = useAnalyticsStream(session?.meetingId);
   const { transcripts } = useTranscripts(session?.meetingId);
 
-  const [title, setTitle] = useState('緊急ミーティング');
   const [meetingCode, setMeetingCode] = useState('');
-  const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
-
-  const shareUrl = useMemo(
-    () => (session ? `${window.location.origin}/?meeting=${session.meetingId}` : ''),
-    [session],
-  );
-
-  const handleCreate = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    setCreating(true);
-    try {
-      const created = await createMeeting(title);
-      setMeetingCode(created.meetingId);
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
@@ -62,67 +42,31 @@ export function SessionPage() {
   return (
     <Layout
       title="MeetingPolice Live Session"
-      subtitle="セッションを作成して共有リンクを配布。Vonage でビデオ会議しながら、音声をリアルタイムで文字起こしします。"
+      subtitle="管理者が発行した Meeting ID を入力して Vonage でビデオ会議。音声はリアルタイム文字起こしされます。"
     >
-      <div className="panel-grid">
-        <section className="panel poc-upload">
-          <div className="panel-header">
-            <h2>セッションを作成</h2>
-            <span className="badge">Host</span>
-          </div>
-          <form className="stack" onSubmit={handleCreate}>
-            <label className="field">
-              <span className="label">タイトル</span>
-              <input
-                type="text"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="例: 週次進捗 / POC デモ"
-              />
-            </label>
-            <button type="submit" disabled={creating}>
-              {creating ? '作成中…' : 'セッションを発行'}
-            </button>
-          </form>
-          {session && (
-            <div className="session-info">
-              <p className="label">Meeting ID</p>
-              <code className="id-chip">{session.meetingId}</code>
-              <p className="label">共有リンク</p>
-              <input
-                className="share-link"
-                value={shareUrl}
-                readOnly
-                onFocus={(event) => event.currentTarget.select()}
-              />
-            </div>
-          )}
-        </section>
-
-        <section className="panel join-card">
-          <div className="panel-header">
-            <h2>参加する</h2>
-            <span className="badge ghost">Guest</span>
-          </div>
-          <p>共有された Meeting ID を入力すると、ビデオ会議に入室できます。</p>
-          <form className="meeting-form" onSubmit={handleJoin}>
-            <input
-              type="text"
-              placeholder="Meeting ID"
-              value={meetingCode}
-              onChange={(event) => setMeetingCode(event.target.value)}
-            />
-            <button type="submit" disabled={joining || status === 'connecting'}>
-              {joining ? '接続中…' : '入室する'}
-            </button>
-          </form>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </section>
-      </div>
+      <section className="panel join-card">
+        <div className="panel-header">
+          <h2>参加する</h2>
+          <span className="badge ghost">Guest</span>
+        </div>
+        <p>管理者が配布した Meeting ID を入力してください。入室後に自動で文字起こしが始まります。</p>
+        <form className="meeting-form" onSubmit={handleJoin}>
+          <input
+            type="text"
+            placeholder="Meeting ID"
+            value={meetingCode}
+            onChange={(event) => setMeetingCode(event.target.value)}
+          />
+          <button type="submit" disabled={joining || status === 'connecting'}>
+            {joining ? '接続中…' : '入室する'}
+          </button>
+        </form>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
 
       {session ? (
         <>
