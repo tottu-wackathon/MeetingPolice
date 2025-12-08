@@ -824,7 +824,15 @@ export function PocSatominPage() {
                 ? Math.round(recent3.reduce((sum, item) => sum + item.alignment, 0) / recent3.length)
                 : 0;
 
-              const padding = 5; // 両端が見切れないように少し余白
+              const padding = 8; // 両端が見切れないように少し余白
+
+              const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
+              const bars = recent10.map((item, idx) => {
+                const x = padding + idx * barWidth + barWidth * 0.1;
+                const height = Math.max(0, Math.min(100, item.alignment));
+                const y = 100 - height;
+                return { x, y, height, value: item.alignment };
+              });
 
               const toPoints = (items: typeof recent10) =>
                 items.map((item, idx) => {
@@ -851,11 +859,21 @@ export function PocSatominPage() {
                 return d;
               };
 
-              const points10 = toPoints(recent10);
-              const points3 = toPoints(recent3);
-              const pathD10 = buildSmoothPath(points10);
-              const pathD3 = buildSmoothPath(points3);
-              const lastPoint3 = points3[points3.length - 1];
+              const weightedAvgPoints = (() => {
+                const weights = recent10.map((_, idx) => (idx >= recent10.length - 3 ? 2 : 1));
+                const totalWeight = weights.reduce((s, w) => s + w, 0) || 1;
+                let cum = 0;
+                return recent10.map((item, idx) => {
+                  cum += item.alignment * weights[idx];
+                  const avg = cum / weights.slice(0, idx + 1).reduce((s, w) => s + w, 0);
+                  return { alignment: avg };
+                });
+              })();
+
+              const pointsWeighted = toPoints(
+                weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
+              );
+              const pathDWeighted = buildSmoothPath(pointsWeighted);
 
               return (
                 <div
@@ -871,7 +889,7 @@ export function PocSatominPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                     <div>
                       <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
-                        迷子チェッカー
+                        会議治安指数
                       </p>
                       <div
                         style={{
@@ -885,7 +903,7 @@ export function PocSatominPage() {
                         {avgAlignment}%
                       </div>
                     </div>
-                    <div style={{ flex: 1.2 }}>
+                    <div style={{ flex: 1.4 }}>
                       <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
                         <defs>
                           <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -904,45 +922,34 @@ export function PocSatominPage() {
                         {/* 警告・警察ライン */}
                         <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
                         <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
-                        {/* 面塗り */}
-                        {points10.length > 1 && (
-                          <path
-                            d={`${pathD10} L ${100 - padding} 100 L ${padding} 100 Z`}
-                            fill="url(#alignFill)"
-                            opacity="0.6"
+                        {/* 棒グラフ: 発話ごとのスコア */}
+                        {bars.map((b, idx) => (
+                          <rect
+                            key={idx}
+                            x={b.x}
+                            y={b.y}
+                            width={barWidth * 0.8}
+                            height={b.height}
+                            fill="rgba(0,255,255,0.25)"
+                            stroke="rgba(0,255,255,0.5)"
+                            strokeWidth="0.8"
+                            rx="1.5"
                           />
-                        )}
-                        {/* ライン */}
-                        <path d={pathD10} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d={pathD3} stroke="url(#alignStroke2)" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-                        {/* ポイント */}
-                        {points10.map((p, idx) => {
-                          const isLast = idx === points10.length - 1;
-                          return (
+                        ))}
+                        {/* ライン（加重平均の推移） */}
+                        <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        {/* ポイント（平均） */}
+                        {pointsWeighted.map((p, idx) => (
                           <circle
                             key={idx}
                             cx={p.x}
                             cy={p.y}
-                            r={isLast ? 2.8 : 2}
-                            fill={isLast ? '#00e676' : '#00ffff'}
+                            r={2.2}
+                            fill="#00ffff"
                             stroke="#0a0e27"
                             strokeWidth="0.7"
                           />
-                          );
-                        })}
-                        {/* 最新ポイント（直近3件の末尾） */}
-                        {lastPoint3 && (
-                          <text
-                            x={lastPoint3.x}
-                            y={Math.max(10, lastPoint3.y - 6)}
-                            textAnchor="middle"
-                            fontSize="8"
-                            fill="#ffdcc5"
-                            style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.8))', fontWeight: 700 }}
-                          >
-                            {lastPoint3.value}%
-                          </text>
-                        )}
+                        ))}
                       </svg>
                     </div>
                   </div>
