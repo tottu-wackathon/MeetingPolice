@@ -11,4 +11,4 @@ pytest
 pytest-asyncio
 pydantic-settings
 python-multipart
-opentok==2.28.0
+opentok==3.13.0
