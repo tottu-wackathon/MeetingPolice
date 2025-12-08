@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from opentok import OpenTok
+from opentok import OpenTok, MediaModes
 
 from backend.config import get_settings
 
@@ -20,7 +20,7 @@ class VonageClient:
     def create_session(self, meeting_id: str) -> dict[str, Any]:
         if not self.client:
             return {"session_id": f"session-{meeting_id}"}
-        session = self.client.create_session(media_mode="routed")
+        session = self.client.create_session(media_mode=MediaModes.routed)
         return {"session_id": session.session_id}
 
     def generate_token(self, session_id: str, ttl_seconds: int = 300) -> str:
