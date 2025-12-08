@@ -827,9 +827,13 @@ export function PocSatominPage() {
               const avgAlignment = Math.round(
                 recentItems.reduce((sum, item, idx) => sum + item.alignment * weights[idx], 0) / totalWeight
               );
+              const padding = 5; // 両端が見切れないように少し余白
               const points = recentItems.map((item, idx) => {
-                const x = recentItems.length === 1 ? 0 : (idx / (recentItems.length - 1)) * 100;
-                const y = 100 - item.alignment; // 上が高スコア
+                const x =
+                  recentItems.length === 1
+                    ? 50
+                    : padding + ((idx / (recentItems.length - 1)) * (100 - padding * 2));
+                const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment)); // 上が高スコア
                 return { x, y, value: item.alignment };
               });
               const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
