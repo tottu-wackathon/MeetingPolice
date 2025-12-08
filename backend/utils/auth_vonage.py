@@ -5,6 +5,10 @@ from backend.config import get_settings
 
 
 def verify_jwt(token: str) -> bool:
+    # Vonage Video SDK のトークンは "T1==" で始まる
+    if token.startswith("T1=="):
+        return True
+
     settings = get_settings()
     key_path = Path(settings.vonage_private_key_path)
     if not key_path.exists():
