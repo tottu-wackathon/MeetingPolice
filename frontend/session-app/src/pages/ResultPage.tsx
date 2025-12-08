@@ -37,11 +37,14 @@ export function ResultPage() {
         setResultData(data);
     }, [location.state, navigate]);
 
-    if (!resultData) {
-        return <Layout title="読み込み中..." subtitle=""><div>読み込み中...</div></Layout>;
-    }
-
-    const { agendaText, elapsedSeconds, avgAlignment, totalItems, scheduledMinutes, speakerCounts, speakerNames } = resultData;
+    // resultData がまだ無い場合でも hook の順序を崩さないように、デフォルト値で計算する
+    const agendaText = resultData?.agendaText ?? '';
+    const elapsedSeconds = resultData?.elapsedSeconds ?? 0;
+    const avgAlignment = resultData?.avgAlignment ?? 0;
+    const totalItems = resultData?.totalItems ?? 0;
+    const scheduledMinutes = resultData?.scheduledMinutes;
+    const speakerCounts = resultData?.speakerCounts;
+    const speakerNames = resultData?.speakerNames;
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
     const isSuccess = avgAlignment >= 60;
@@ -160,7 +163,7 @@ export function ResultPage() {
                             </div>
                         </div>
 
-                        {speakerStats.length > 0 && (
+                        {speakerStats.length > 0 && resultData && (
                             <div style={{
                                 padding: '20px',
                                 backgroundColor: 'rgba(10, 14, 39, 0.9)',
