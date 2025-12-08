@@ -90,4 +90,5 @@ export type LiveTranscript = {
   sentiment: string;
   timestamp: string;
   speaker?: string;
+  isPartial?: boolean;
 };

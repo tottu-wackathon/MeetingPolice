@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+import queue
+import threading
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
@@ -62,24 +64,54 @@ class SessionController:
         if not meeting:
             await websocket.close(code=4404)
             return
+        loop = asyncio.get_running_loop()
+        audio_queue: queue.Queue[bytes | None] = queue.Queue()
+        stop_event = threading.Event()
 
         await websocket.accept()
-        await self.transcribe.start()
+        # Kick off transcribe streaming in background thread
+        def handle_transcript(payload: dict) -> None:
+            if payload.get("error"):
+                asyncio.run_coroutine_threadsafe(
+                    websocket.send_json({"error": payload["error"]}), loop
+                )
+                return
+            message = {
+                "meeting_id": meeting_id,
+                "timestamp": now_iso(),
+                "transcript": payload.get("transcript", ""),
+                "sentiment": analyze_sentiment(payload.get("transcript", "")).get("Sentiment", "NEUTRAL"),
+                "is_partial": payload.get("is_partial", False),
+            }
+            asyncio.run_coroutine_threadsafe(websocket.send_json(message), loop)
+
+        def run_transcribe() -> None:
+            self.transcribe.stream_audio(audio_queue, handle_transcript)
+            stop_event.set()
+
+        transcribe_thread = threading.Thread(target=run_transcribe, daemon=True)
+        transcribe_thread.start()
+
         try:
-            for idx in range(10):
-                text = f"Sample utterance {idx} for {meeting_id}"
-                sentiment = analyze_sentiment(text)
-                payload = {
-                    "meeting_id": meeting_id,
-                    "timestamp": now_iso(),
-                    "transcript": text,
-                    "sentiment": sentiment.get("Sentiment", "NEUTRAL"),
-                }
-                await websocket.send_json(payload)
-                await asyncio.sleep(2)
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+                data = message.get("bytes")
+                if data:
+                    audio_queue.put(data)
+                elif message.get("text"):
+                    # allow ping/keepalive
+                    if message["text"] == "close":
+                        break
+                await asyncio.sleep(0)
         except WebSocketDisconnect:
             return
         finally:
+            audio_queue.put(None)
+            stop_event.wait(timeout=2)
+            if transcribe_thread.is_alive():
+                transcribe_thread.join(timeout=1)
             if websocket.application_state == WebSocketState.CONNECTED:
                 with suppress(RuntimeError):
                     await websocket.close(code=1000)
