@@ -31,7 +31,7 @@ class PocJob:
     status: str = "processing"
     transcripts: list[dict[str, Any]] = field(default_factory=list)
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    speaker_labels: dict[str, str] = field(default_factory=dict)
+    speaker_labels: dict[str, str] = field(default_factory=lambda: {"spk_unk": "Speaker0"})
     next_speaker_index: int = 1
     next_entry_index: int = 1
     pending_results: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -359,13 +359,15 @@ class POCController:
         return key_str or "spk_unk"
 
     def _is_unknown_label(self, raw_label: str | None) -> bool:
-        if raw_label is None:
-            return True
-        label = str(raw_label).strip().lower()
-        return not label or label in {"spk_unk", "__unknown__", "unknown", "unk"}
+        normalized = self._normalize_raw_label(raw_label)
+        return normalized == "spk_unk"
 
     def _speaker_name(self, job: PocJob, raw_label: str | None) -> str:
         key = self._normalize_raw_label(raw_label)
+        if key == "spk_unk":
+            # spk_unk は常に Speaker0 に固定
+            job.speaker_labels.setdefault("spk_unk", "Speaker0")
+            return job.speaker_labels["spk_unk"]
         if key not in job.speaker_labels:
             label = f"Speaker {job.next_speaker_index}"
             job.speaker_labels[key] = label
