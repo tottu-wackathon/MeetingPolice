@@ -818,10 +818,14 @@ export function PocSatominPage() {
               const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
               if (validItems.length === 0) return null;
 
-              // 直近5件の平均一致度を計算し、ラインチャート用に変換
-              const recentItems = validItems.slice(-5);
+              // 直近10件をベースにしつつ、直近3件に重みを持たせて算出
+              const recentItems = validItems.slice(-10);
+              const weights = recentItems.map((_, idx) =>
+                idx >= recentItems.length - 3 ? 2 : 1
+              );
+              const totalWeight = weights.reduce((sum, w) => sum + w, 0);
               const avgAlignment = Math.round(
-                recentItems.reduce((sum, item) => sum + item.alignment, 0) / recentItems.length
+                recentItems.reduce((sum, item, idx) => sum + item.alignment * weights[idx], 0) / totalWeight
               );
               const points = recentItems.map((item, idx) => {
                 const x = recentItems.length === 1 ? 0 : (idx / (recentItems.length - 1)) * 100;
@@ -845,7 +849,7 @@ export function PocSatominPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                     <div>
                       <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
-                        直近の平均一致度（最新5件）
+                        迷子チェッカー
                       </p>
                       <div
                         style={{
