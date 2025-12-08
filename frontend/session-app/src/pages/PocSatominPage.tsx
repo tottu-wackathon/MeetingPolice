@@ -755,6 +755,7 @@ export function PocSatominPage() {
                   👥 話者別発言割合
                 </p>
                 {speakerStats.map(({ speaker, count, percentage, isNew }) => {
+                  const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
                   const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
 
                   return (
@@ -768,9 +769,9 @@ export function PocSatominPage() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
-                            {speaker}
-                          </span>
+                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
+                              {displayName}
+                            </span>
                           <input
                             type="text"
                             placeholder="名前を入力"
@@ -819,9 +820,13 @@ export function PocSatominPage() {
               if (validItems.length === 0) return null;
 
               const recent10 = validItems.slice(-10);
-              const recent5 = validItems.slice(-5);
-              const avgAlignment = recent5.length
-                ? Math.round(recent5.reduce((sum, item) => sum + item.alignment, 0) / recent5.length)
+              // 直近5件に重み3、それ以前に重み1の加重平均
+              const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+              const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
+              const avgAlignment = recent10.length
+                ? Math.round(
+                    recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+                  )
                 : 0;
 
               const padding = 8; // 両端が見切れないように少し余白
@@ -860,7 +865,7 @@ export function PocSatominPage() {
               };
 
               const weightedAvgPoints = (() => {
-                const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 2 : 1));
+                const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
                 const cumulativeWeights: number[] = [];
                 let sumW = 0;
                 weights.forEach((w) => {
