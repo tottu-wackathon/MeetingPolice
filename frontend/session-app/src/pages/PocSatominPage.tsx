@@ -47,6 +47,8 @@ export function PocSatominPage() {
   const [policeWarningShownAt, setPoliceWarningShownAt] = useState<number | null>(null);
   const [lowAlignmentStartTime, setLowAlignmentStartTime] = useState<number | null>(null);
   const policeWarningTimeoutRef = useRef<number | null>(null);
+  const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
+  const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
   const wsRef = useRef<WebSocket | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -154,6 +156,29 @@ export function PocSatominPage() {
     };
     loadHistory();
   }, []);
+
+  // 話者別の発話ボリュームを事前計算（判別中は除外）
+  useEffect(() => {
+    const lengthMap: Record<string, number> = {};
+    transcripts.forEach((item) => {
+      if (item.speaker === '判別中...') return;
+      const length = item.text.length;
+      lengthMap[item.speaker] = (lengthMap[item.speaker] || 0) + length;
+    });
+    const total = Object.values(lengthMap).reduce((sum, v) => sum + v, 0);
+    const stats = Object.entries(lengthMap)
+      .map(([speaker, count]) => ({
+        speaker,
+        count,
+        percentage: total > 0 ? Math.round((count / total) * 100) : 0,
+        isNew: !knownSpeakersRef.current.has(speaker),
+      }))
+      .sort((a, b) => b.count - a.count);
+    setSpeakerStats(stats);
+    const merged = new Set(knownSpeakersRef.current);
+    stats.forEach((s) => merged.add(s.speaker));
+    knownSpeakersRef.current = merged;
+  }, [transcripts]);
 
   const handleStart = async (event: FormEvent) => {
     event.preventDefault();
@@ -716,82 +741,77 @@ export function PocSatominPage() {
               </div>
             </div>
 
-            {transcripts.length > 0 && (() => {
-              // 話者ごとの発言回数を計算
-              const speakerCounts: { [key: string]: number } = {};
-              transcripts.forEach(item => {
-                if (item.speaker === '判別中...') return;
-                const length = item.text.length;
-                speakerCounts[item.speaker] = (speakerCounts[item.speaker] || 0) + length;
-              });
-
-              const totalCount = Object.values(speakerCounts).reduce((sum, count) => sum + count, 0);
-              const speakerStats = Object.entries(speakerCounts).map(([speaker, count]) => ({
-                speaker,
-                count,
-                percentage: totalCount > 0 ? Math.round((count / totalCount) * 100) : 0
-              })).sort((a, b) => b.count - a.count);
-
-              return (
-                <div style={{
+            {speakerStats.length > 0 && (
+              <div
+                style={{
                   padding: '15px',
                   backgroundColor: 'rgba(255, 255, 255, 0.3)',
                   borderRadius: '8px',
                   marginBottom: '16px',
                   border: '2px solid #00ffff'
-                }}>
-                  <p style={{ margin: '0 0 12px 0', fontSize: '0.9em', color: '#00ffff', fontWeight: 'bold' }}>
-                    👥 話者別発言割合
-                  </p>
-                  {speakerStats.map(({ speaker, count, percentage }) => {
-                    // バーの色を決定（70%超で黄色、85%超で赤）
-                    const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
+                }}
+              >
+                <p style={{ margin: '0 0 12px 0', fontSize: '0.9em', color: '#00ffff', fontWeight: 'bold' }}>
+                  👥 話者別発言割合
+                </p>
+                {speakerStats.map(({ speaker, count, percentage, isNew }) => {
+                  const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
 
-                    return (
-                      <div key={speaker} style={{ marginBottom: '12px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
-                              {speaker}
-                            </span>
-                            <input
-                              type="text"
-                              placeholder="名前を入力"
-                              value={speakerNames[speaker] || ''}
-                              onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
-                              style={{
-                                width: '120px',
-                                padding: '4px 8px',
-                                fontSize: '0.8em',
-                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                                border: '1px solid #00ffff',
-                                borderRadius: '4px',
-                                color: '#00ffff'
-                              }}
-                            />
-                          </div>
-                          <span style={{ color: barColor, fontSize: '0.9em', fontWeight: 'bold' }}>{percentage}%</span>
+                  return (
+                    <div
+                      key={speaker}
+                      className="speaker-card"
+                      style={{
+                        marginBottom: '12px',
+                        animation: isNew ? 'mpFadeSlide 0.4s ease' : undefined
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
+                            {speaker}
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="名前を入力"
+                            value={speakerNames[speaker] || ''}
+                            onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
+                            style={{
+                              width: '120px',
+                              padding: '4px 8px',
+                              fontSize: '0.8em',
+                              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                              border: '1px solid #00ffff',
+                              borderRadius: '4px',
+                              color: '#00ffff'
+                            }}
+                          />
                         </div>
-                        <div style={{
+                        <span style={{ color: barColor, fontSize: '0.9em', fontWeight: 'bold' }}>{percentage}%</span>
+                      </div>
+                      <div
+                        style={{
                           width: '100%',
                           height: '8px',
                           backgroundColor: 'rgba(0, 0, 0, 0.3)',
                           borderRadius: '4px',
                           overflow: 'hidden'
-                        }}>
-                          <div style={{
+                        }}
+                      >
+                        <div
+                          className="speaker-bar"
+                          style={{
                             width: `${percentage}%`,
                             height: '100%',
-                            backgroundColor: barColor,
-                            transition: 'width 0.3s ease, background-color 0.3s ease'
-                          }} />
-                        </div>
+                            backgroundColor: barColor
+                          }}
+                        />
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {realtimeClassifications.length > 0 && (() => {
               // コメント（短い発言）を除外
