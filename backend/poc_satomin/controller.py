@@ -351,7 +351,12 @@ class POCController:
             yield pcm_bytes[idx : idx + chunk_size]
 
     def _speaker_name(self, job: PocJob, raw_label: str | None) -> str:
-        key = raw_label or "__unknown__"
+        """raw_label をそのままキーに使い、falsy な値でも区別できるよう文字列化して管理"""
+        if raw_label is None:
+            key = "__unknown__"
+        else:
+            key_str = str(raw_label).strip()
+            key = key_str if key_str else "__unknown__"
         if key not in job.speaker_labels:
             label = f"Speaker {job.next_speaker_index}"
             job.speaker_labels[key] = label
