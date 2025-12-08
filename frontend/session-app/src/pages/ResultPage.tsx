@@ -47,7 +47,7 @@ export function ResultPage() {
             const x = Math.sin(seed) * 10000;
             return x - Math.floor(x);
         };
-        return Array.from({ length: 120 }).map((_, i) => ({
+        return Array.from({ length: 220 }).map((_, i) => ({
             id: i,
             left: rand(i) * 100,
             delay: rand(i + 1) * 0.6,
@@ -58,6 +58,7 @@ export function ResultPage() {
             width: 6 + rand(i + 6) * 10,
             height: 10 + rand(i + 7) * 14,
             drift: (rand(i + 8) - 0.5) * 50, // 左右に少し流れる
+            rounded: rand(i + 9) > 0.5,
         }));
     }, [isSuccess]);
 
@@ -80,20 +81,22 @@ export function ResultPage() {
                             <span
                                 key={piece.id}
                                 className="confetti-piece"
-                                style={{
-                                    left: `${piece.left}%`,
-                                    animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
-                                    backgroundColor: piece.color,
-                                    transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
-                                    willChange: 'transform, opacity',
-                                    width: `${piece.width}px`,
-                                    height: `${piece.height}px`,
-                                    ['--drift' as string]: `${piece.drift}px`,
-                                }}
-                            />
-                        ))}
-                    </div>
-                )}
+                        style={{
+                            left: `${piece.left}%`,
+                            animation: `mpConfettiFall ${piece.duration}s linear ${piece.delay}s forwards`,
+                            backgroundColor: piece.color,
+                            transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
+                            willChange: 'transform, opacity',
+                            width: `${piece.width}px`,
+                            height: `${piece.height}px`,
+                            ['--drift' as string]: `${piece.drift}px`,
+                            borderRadius: piece.rounded ? '50%' : '2px',
+                            boxShadow: `0 0 6px rgba(0,0,0,0.2)`,
+                        }}
+                    />
+                ))}
+            </div>
+        )}
 
                 {isSuccess && (
                     <div style={{

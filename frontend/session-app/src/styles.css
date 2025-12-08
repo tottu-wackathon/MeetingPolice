@@ -236,8 +236,8 @@ button:active {
     transform: translate3d(0, 0, 0) rotate(0deg);
   }
   100% {
-    transform: translate3d(calc(var(--drift, 0px) * 1.5), 120vh, 0) rotate(540deg);
-    opacity: 0.4;
+    transform: translate3d(calc(var(--drift, 0px) * 1.5), 120vh, 0) rotate(720deg);
+    opacity: 0.25;
   }
 }
 
