@@ -433,6 +433,13 @@ class POCController:
             job.pending_results[result_id] = entry
             await job.queue.put({"type": "transcript", "action": "append", "payload": self._public_payload(entry)})
         else:
+            # すでに表示した発話の話者ラベルは基本的に固定し、Transcribe の途中でラベルが揺れても変えない。
+            # ただし「不明(spk_unk)」から「具体的な raw_label」に更新できる場合のみ一度だけアップグレードする。
+            current_raw = entry.get("raw_speaker", "spk_unk")
+            if current_raw in {"spk_unk", "__unknown__"} and raw_label not in {"spk_unk", "__unknown__"}:
+                entry["raw_speaker"] = raw_label
+                entry["speaker"] = self._speaker_name(job, raw_label)
+
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
                     await self._finalize_result(job, result_id)
@@ -446,8 +453,6 @@ class POCController:
                         asyncio.create_task(self.classify_realtime(job.job_id, split_text, speaker_label, unique_index))
                 return
             entry["text"] = text
-            entry["speaker"] = speaker_label
-            entry["raw_speaker"] = raw_label
             await job.queue.put({"type": "transcript", "action": "update", "payload": self._public_payload(entry)})
         
         # 最終結果が出たら、必ず分析を実行（全文を分析）
