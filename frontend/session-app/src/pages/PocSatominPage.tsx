@@ -506,6 +506,11 @@ export function PocSatominPage() {
     });
   };
 
+  const displaySpeaker = (speaker: string) => {
+    const name = speakerNames[speaker];
+    return name ? `${name}さん` : speaker;
+  };
+
   return (
     <Layout title="MeetingPolice PoC Satomin" subtitle="アジェンダと音声をアップロードし、リアルタイム文字起こしを確認できます。">
       {showWarning && (
@@ -722,7 +727,7 @@ export function PocSatominPage() {
               {transcripts.map((item) => (
                 <article key={item.timestamp + item.index} className="transcript-item">
                   <header>
-                    <strong>{item.speaker}</strong>
+                    <strong>{displaySpeaker(item.speaker)}</strong>
                     {item.raw_speaker && <span className="pill mono">{item.raw_speaker}</span>}
                     <span>{item.timestamp}</span>
                   </header>
@@ -1003,7 +1008,7 @@ export function PocSatominPage() {
                   return (
                     <article key={index} className="transcript-item">
                       <header>
-                        <strong>{item.speaker}</strong>
+                        <strong>{displaySpeaker(item.speaker)}</strong>
                         <span className="pill">{item.category}</span>
                         <span className="pill" style={{ backgroundColor: bgColor }}>
                           {icon} {item.alignment}%
