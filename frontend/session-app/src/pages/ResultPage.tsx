@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
@@ -48,17 +49,39 @@ export function ResultPage() {
     useEffect(() => {
         if (!isSuccess) return;
         const palette = ['#ff8a65', '#ffd54f', '#4fc3f7', '#ba68c8', '#00e676', '#ff5252', '#ffee58', '#80deea'];
-        const pieces = Array.from({ length: 80 }).map((_, i) => ({
+        const pieces = Array.from({ length: 120 }).map((_, i) => ({
             id: i,
             left: Math.random() * 100,
             delay: Math.random() * 0.6,
-            duration: 4 + Math.random() * 2,
+            duration: 4 + Math.random() * 2.5,
             color: palette[Math.floor(Math.random() * palette.length)],
             rotation: Math.random() * 360,
-            scale: 0.6 + Math.random() * 0.8,
+            scale: 0.7 + Math.random() * 0.9,
         }));
         setConfetti(pieces);
     }, [isSuccess]);
+
+    const confettiPortal = useMemo(() => {
+        if (!isSuccess || typeof document === 'undefined') return null;
+        return createPortal(
+            <div className="confetti-container">
+                {confetti.map((piece) => (
+                    <span
+                        key={piece.id}
+                        className="confetti-piece"
+                        style={{
+                            left: `${piece.left}%`,
+                            animationDelay: `${piece.delay}s`,
+                            animationDuration: `${piece.duration}s`,
+                            backgroundColor: piece.color,
+                            transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
+                        }}
+                    />
+                ))}
+            </div>,
+            document.body
+        );
+    }, [confetti, isSuccess]);
 
     // 話者別発言割合を計算
     const speakerStats = speakerCounts ? Object.entries(speakerCounts).map(([speaker, count]) => {
@@ -73,23 +96,7 @@ export function ResultPage() {
     return (
         <Layout title="ミーティング結果" subtitle="お疲れさまでした！">
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                {isSuccess && (
-                    <div className="confetti-container">
-                        {confetti.map((piece) => (
-                            <span
-                                key={piece.id}
-                                className="confetti-piece"
-                                style={{
-                                    left: `${piece.left}%`,
-                                    animationDelay: `${piece.delay}s`,
-                                    animationDuration: `${piece.duration}s`,
-                                    backgroundColor: piece.color,
-                                    transform: `rotate(${piece.rotation}deg) scale(${piece.scale})`,
-                                }}
-                            />
-                        ))}
-                    </div>
-                )}
+                {confettiPortal}
 
                 {isSuccess && (
                     <div style={{
