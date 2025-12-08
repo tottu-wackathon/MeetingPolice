@@ -458,8 +458,11 @@ class POCController:
             current_raw = entry.get("raw_speaker", "spk_unk")
             if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
                 entry["raw_speaker"] = raw_label
+                stable_label = str(raw_label)
+                entry["speaker"] = stable_label  # 後から判明した生ラベルで確定
                 # この後に同じ raw_label が来たら同じ Speaker に紐付けられるようにバインド
-                job.speaker_labels[raw_label] = entry["speaker"]
+                job.speaker_labels[raw_label] = stable_label
+                await job.queue.put({"type": "transcript", "action": "update", "payload": self._public_payload(entry)})
 
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
