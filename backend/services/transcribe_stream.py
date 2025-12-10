@@ -63,6 +63,9 @@ class TranscribeStream:
         if not self.client:
             on_transcript({"error": "transcribe client not configured"})
             return
+        if not hasattr(self.client, "start_stream_transcription"):
+            on_transcript({"error": "transcribe streaming not supported in current boto3/botocore; falling back"})
+            return
         try:
             response = self.client.start_stream_transcription(
                 LanguageCode=language_code,
