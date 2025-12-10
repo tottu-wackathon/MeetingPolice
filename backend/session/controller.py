@@ -10,12 +10,17 @@ from typing import Any
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from amazon_transcribe.auth import StaticCredentialResolver
+from amazon_transcribe.client import TranscribeStreamingClient
+
 from backend.services.vonage_client import VonageClient
 from backend.services.transcribe_stream import TranscribeStream
 from backend.services.comprehend_utils import analyze_sentiment
 from backend.services.bedrock_utils import classify_transcript_segments, _guess_category
 from backend.services.repository import MeetingRepository
+from backend.utils.auth_aws import get_session
 from backend.utils.time_utils import now_iso
+from backend.config import get_settings
 
 
 class SessionController:
@@ -24,7 +29,10 @@ class SessionController:
         self.transcribe = TranscribeStream()
         self.repository = repository or MeetingRepository()
         self.logger = logging.getLogger(__name__)
+        self.settings = get_settings()
         self._classification_index = 1
+        # Session用のデータ構造
+        self.session_data = {}  # meeting_id -> session data
 
     def _build_session_payload(self, meeting, session_id: str, token: str) -> dict:
         return {
@@ -81,173 +89,421 @@ class SessionController:
         if not meeting:
             await websocket.close(code=4404)
             return
-        loop = asyncio.get_running_loop()
-        audio_queue: queue.Queue[bytes | None] = queue.Queue()
-        stop_event = threading.Event()
 
         await websocket.accept()
-        # Kick off transcribe streaming in background thread
-        def handle_transcript(payload: dict) -> None:
-            if payload.get("error"):
-                asyncio.run_coroutine_threadsafe(
-                    websocket.send_json({"error": payload["error"]}), loop
-                )
-                return
-            message = {
-                "type": "transcript",
-                "meeting_id": meeting_id,
-                "timestamp": now_iso(),
-                "transcript": payload.get("transcript", ""),
-                "sentiment": analyze_sentiment(payload.get("transcript", "")).get("Sentiment", "NEUTRAL"),
-                "is_partial": payload.get("is_partial", False),
-            }
-            asyncio.run_coroutine_threadsafe(websocket.send_json(message), loop)
-            if not payload.get("is_partial") and payload.get("transcript"):
-                asyncio.run_coroutine_threadsafe(
-                    self._classify_and_send(websocket, meeting_id, payload.get("transcript", "")),
-                    loop,
-                )
+        
+        # Initialize session data
+        session_data = {
+            "meeting_id": meeting_id,
+            "transcripts": [],
+            "queue": asyncio.Queue(),
+            "speaker_labels": {"spk_unk": "判別中..."},
+            "next_speaker_index": 1,
+            "next_entry_index": 1,
+            "pending_results": {},
+            "processed_result_ids": set(),
+            "pending_bedrock_tasks": set(),
+            "agenda_text": meeting.title or "",  # Use meeting title as agenda
+        }
+        self.session_data[meeting_id] = session_data
 
-        def run_transcribe() -> None:
-            try:
-                self.logger.info("Starting AWS Transcribe streaming for meeting_id=%s", meeting_id)
-                self.transcribe.stream_audio(audio_queue, handle_transcript)
-                self.logger.info("AWS Transcribe streaming completed for meeting_id=%s", meeting_id)
-            except Exception as e:
-                self.logger.error("Transcribe failed for meeting_id=%s: %s", meeting_id, e)
-                self.logger.info("Falling back to mock transcription for meeting_id=%s", meeting_id)
-                # Mock transcription for testing
-                try:
-                    self._run_mock_transcribe(audio_queue, handle_transcript)
-                except Exception as mock_error:
-                    self.logger.error("Mock transcription also failed: %s", mock_error)
-            finally:
-                stop_event.set()
+        # Start real-time transcription
+        try:
+            await self._start_realtime_transcription(session_data, websocket)
+        except Exception as e:
+            self.logger.error("Transcription failed for meeting_id=%s: %s", meeting_id, e)
+            await websocket.send_json({"error": f"Transcription failed: {e}"})
+        finally:
+            # Cleanup
+            if meeting_id in self.session_data:
+                del self.session_data[meeting_id]
 
-        transcribe_thread = threading.Thread(target=run_transcribe, daemon=True)
-        transcribe_thread.start()
+    async def _start_realtime_transcription(self, session_data: dict, websocket: WebSocket) -> None:
+        """Start real-time transcription using amazon-transcribe streaming."""
+        meeting_id = session_data["meeting_id"]
+        
+        try:
+            # Get AWS credentials
+            session = get_session()
+            credentials = session.get_credentials()
+            if not credentials:
+                raise RuntimeError("Unable to resolve AWS credentials for Transcribe streaming")
+            
+            frozen = credentials.get_frozen_credentials()
+            credential_resolver = StaticCredentialResolver(
+                frozen.access_key,
+                frozen.secret_key,
+                frozen.token,
+            )
+            
+            client = TranscribeStreamingClient(
+                region=self.settings.aws_region,
+                credential_resolver=credential_resolver,
+            )
+            
+            self.logger.info("Starting Transcribe stream for meeting_id=%s", meeting_id)
+            
+            stream = await client.start_stream_transcription(
+                language_code="ja-JP",
+                media_encoding="pcm",
+                media_sample_rate_hz=16000,
+                show_speaker_label=True,
+                enable_partial_results_stabilization=True,
+                partial_results_stability="medium",
+            )
+            
+            # Start audio processing and result handling concurrently
+            await asyncio.gather(
+                self._handle_websocket_audio(websocket, stream, session_data),
+                self._handle_transcribe_results(stream, session_data, websocket),
+            )
+            
+        except Exception as e:
+            self.logger.error("Real-time transcription failed: %s", e)
+            # Fallback to mock transcription
+            await self._start_mock_transcription(session_data, websocket)
 
+    async def _handle_websocket_audio(self, websocket: WebSocket, stream, session_data: dict) -> None:
+        """Handle audio data from WebSocket and send to Transcribe."""
         try:
             while True:
                 message = await websocket.receive()
                 if message.get("type") == "websocket.disconnect":
                     break
+                
                 data = message.get("bytes")
                 if data:
-                    audio_queue.put(data)
+                    await stream.input_stream.send_audio_event(audio_chunk=data)
                 elif message.get("text"):
-                    # allow ping/keepalive
                     if message["text"] == "close":
                         break
-                await asyncio.sleep(0)
+                        
         except WebSocketDisconnect:
-            return
+            pass
         finally:
-            audio_queue.put(None)
-            stop_event.wait(timeout=2)
-            if transcribe_thread.is_alive():
-                transcribe_thread.join(timeout=1)
-            if websocket.application_state == WebSocketState.CONNECTED:
-                with suppress(RuntimeError):
-                    await websocket.close(code=1000)
+            await stream.input_stream.end_stream()
 
-    async def _classify_and_send(self, websocket: WebSocket, meeting_id: str, text: str) -> None:
-        """Run Bedrock分類と簡易一致度計算を行い、WebSocketへ送信する."""
+    async def _handle_transcribe_results(self, stream, session_data: dict, websocket: WebSocket) -> None:
+        """Handle transcription results from AWS Transcribe."""
         try:
-            # 簡易一致度: アジェンダ不明なので中立とする
-            alignment = self._calculate_alignment(text)
-            segments = [{"index": self._classification_index, "speaker": "unknown", "text": text}]
-            self._classification_index += 1
-            classified = await asyncio.to_thread(classify_transcript_segments, segments, "")
-            category = classified[0].get("category") if classified else _guess_category(text)
-            payload: dict[str, Any] = {
-                "type": "realtime_classification",
-                "payload": {
-                    "index": segments[0]["index"],
-                    "text": text,
-                    "speaker": "unknown",
-                    "category": category,
-                    "alignment": alignment,
-                    "method": "bedrock",
-                    "is_final": True,
-                    "timestamp": now_iso(),
-                    "meeting_id": meeting_id,
-                },
-            }
-            await websocket.send_json(payload)
-        except Exception:
-            self.logger.exception("classification failed meeting_id=%s", meeting_id)
+            async for event in stream.output_stream:
+                transcript = getattr(event, "transcript", None)
+                if not transcript:
+                    continue
+                    
+                for result in getattr(transcript, "results", []) or []:
+                    result_id = getattr(result, "result_id", None)
+                    if not result_id:
+                        continue
+                        
+                    is_partial = getattr(result, "is_partial", False)
+                    if not is_partial and result_id in session_data["processed_result_ids"]:
+                        continue
+                        
+                    alternatives = getattr(result, "alternatives", []) or []
+                    if not alternatives:
+                        continue
+                        
+                    alternative = alternatives[0]
+                    text = (getattr(alternative, "transcript", "") or "").strip()
+                    if not text:
+                        continue
+                        
+                    speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
+                    await self._handle_result(session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket)
+                    
+                    if not is_partial:
+                        session_data["processed_result_ids"].add(result_id)
+                        
+        except Exception as e:
+            self.logger.error("Error handling transcribe results: %s", e)
 
-    def _run_mock_transcribe(self, audio_queue: queue.Queue[bytes | None], handle_transcript) -> None:
-        """Mock transcription for testing when AWS Transcribe is not available."""
-        import time
-        import threading
+    async def _start_mock_transcription(self, session_data: dict, websocket: WebSocket) -> None:
+        """Fallback mock transcription for testing."""
+        meeting_id = session_data["meeting_id"]
+        self.logger.info("Starting mock transcription for meeting_id=%s", meeting_id)
         
         mock_phrases = [
             "こんにちは、テストです",
-            "音声認識のテストを行っています",
+            "音声認識のテストを行っています", 
             "マイクの音声が正常に送信されています",
             "文字起こし機能が動作しています",
             "リアルタイム分析のテストです"
         ]
         
         phrase_index = 0
-        audio_received_count = 0
-        last_transcript_time = time.time()
         
-        def check_audio():
-            nonlocal phrase_index, audio_received_count, last_transcript_time
-            
+        try:
             while True:
-                try:
-                    # Get audio data from queue (with timeout)
-                    audio_data = audio_queue.get(timeout=1.0)
-                    if audio_data is None:
-                        break
-                    
-                    audio_received_count += 1
-                    current_time = time.time()
-                    
-                    # Send mock transcript every 3 seconds when audio is received
-                    if current_time - last_transcript_time >= 3.0 and audio_received_count > 0:
-                        phrase = mock_phrases[phrase_index % len(mock_phrases)]
-                        self.logger.info("Mock transcript: %s (audio packets: %d)", phrase, audio_received_count)
-                        
-                        # Send partial result first
-                        handle_transcript({
-                            "transcript": phrase[:len(phrase)//2] + "...",
-                            "is_partial": True,
-                        })
-                        
-                        # Send final result after a short delay
-                        threading.Timer(1.0, lambda: handle_transcript({
-                            "transcript": phrase,
-                            "is_partial": False,
-                        })).start()
-                        
-                        phrase_index += 1
-                        last_transcript_time = current_time
-                        audio_received_count = 0
-                        
-                except queue.Empty:
-                    # No audio received, continue waiting
-                    continue
-                except Exception as e:
-                    self.logger.error("Mock transcribe error: %s", e)
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
                     break
-        
-        # Start audio monitoring in a separate thread
-        audio_thread = threading.Thread(target=check_audio, daemon=True)
-        audio_thread.start()
-        
-        self.logger.info("Mock transcription started - speak into microphone to see results")
+                    
+                data = message.get("bytes")
+                if data:
+                    # Simulate transcription every 3 seconds
+                    await asyncio.sleep(3)
+                    phrase = mock_phrases[phrase_index % len(mock_phrases)]
+                    
+                    # Send transcript
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "meeting_id": meeting_id,
+                        "timestamp": now_iso(),
+                        "transcript": phrase,
+                        "sentiment": "NEUTRAL",
+                        "is_partial": False,
+                    })
+                    
+                    # Send classification
+                    await self._classify_and_send_realtime(websocket, meeting_id, phrase, "Speaker 1", phrase_index + 1)
+                    phrase_index += 1
+                    
+        except WebSocketDisconnect:
+            pass
 
-    def _calculate_alignment(self, text: str) -> int:
-        """簡易一致度: 議題不明のためキーワードベースでざっくり算出."""
-        if not text:
+    def _speaker_from_items(self, session_data: dict, alternative: Any) -> tuple[str, str]:
+        """Extract speaker information from transcribe alternative."""
+        counts: dict[str, int] = {}
+        for item in getattr(alternative, "items", []) or []:
+            label = getattr(item, "speaker", None)
+            if not label:
+                continue
+            counts[label] = counts.get(label, 0) + 1
+            
+        raw_label = max(counts, key=counts.get) if counts else None
+        normalized = self._normalize_raw_label(raw_label)
+        friendly = self._speaker_name(session_data, normalized)
+        return friendly, normalized
+
+    def _normalize_raw_label(self, raw_label: str | None) -> str:
+        """Normalize speaker label."""
+        unknown_tokens = {"", "spk_unk", "__unknown__", "unknown", "unk", None}
+        if raw_label in unknown_tokens:
+            return "spk_unk"
+        key_str = str(raw_label).strip()
+        return key_str or "spk_unk"
+
+    def _speaker_name(self, session_data: dict, raw_label: str | None) -> str:
+        """Get friendly speaker name."""
+        key = self._normalize_raw_label(raw_label)
+        if key == "spk_unk":
+            session_data["speaker_labels"].setdefault("spk_unk", "判別中...")
+            return session_data["speaker_labels"]["spk_unk"]
+            
+        if key not in session_data["speaker_labels"]:
+            label = f"Speaker {session_data['next_speaker_index']}"
+            session_data["speaker_labels"][key] = label
+            session_data["next_speaker_index"] += 1
+            
+        return session_data["speaker_labels"][key]
+
+    async def _handle_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
+        """Handle transcription result."""
+        entry = session_data["pending_results"].get(result_id)
+        
+        if not entry:
+            entry = {
+                "index": session_data["next_entry_index"],
+                "speaker": speaker_label,
+                "raw_speaker": raw_label,
+                "result_id": result_id,
+                "text": text,
+                "timestamp": now_iso(),
+            }
+            session_data["next_entry_index"] += 1
+            session_data["pending_results"][result_id] = entry
+            
+            # Send transcript
+            await websocket.send_json({
+                "type": "transcript",
+                "meeting_id": session_data["meeting_id"],
+                "timestamp": entry["timestamp"],
+                "transcript": text,
+                "sentiment": analyze_sentiment(text).get("Sentiment", "NEUTRAL"),
+                "is_partial": not is_final,
+                "speaker": speaker_label,
+            })
+        else:
+            # Update existing entry
+            entry["text"] = text
+            entry["speaker"] = speaker_label
+            entry["raw_speaker"] = raw_label
+            
+            # Send updated transcript
+            await websocket.send_json({
+                "type": "transcript", 
+                "meeting_id": session_data["meeting_id"],
+                "timestamp": entry["timestamp"],
+                "transcript": text,
+                "sentiment": analyze_sentiment(text).get("Sentiment", "NEUTRAL"),
+                "is_partial": not is_final,
+                "speaker": speaker_label,
+            })
+        
+        if is_final:
+            # Finalize result and start classification
+            await self._finalize_result(session_data, result_id, websocket)
+            await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, entry["index"])
+
+    async def _finalize_result(self, session_data: dict, result_id: str, websocket: WebSocket) -> None:
+        """Finalize a transcription result."""
+        entry = session_data["pending_results"].pop(result_id, None)
+        if entry:
+            session_data["transcripts"].append(entry)
+
+    async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
+        """Perform real-time classification like poc_satomin."""
+        # Skip short texts
+        text_stripped = text.strip()
+        if len(text_stripped) < 10:
+            return
+            
+        session_data = self.session_data.get(meeting_id)
+        if not session_data:
+            return
+            
+        # Skip meta information
+        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
+            return
+            
+        # Step 1: Quick keyword-based classification
+        category_quick = _guess_category(text)
+        alignment_quick = self._calculate_alignment(text, session_data["agenda_text"])
+        
+        result_quick = {
+            "index": index,
+            "text": text,
+            "speaker": speaker,
+            "category": category_quick,
+            "alignment": alignment_quick,
+            "method": "keyword",
+            "is_final": False
+        }
+        
+        # Send quick result
+        await websocket.send_json({
+            "type": "realtime_classification",
+            "payload": result_quick
+        })
+        
+        # Step 2: Background Bedrock analysis
+        task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
+        session_data["pending_bedrock_tasks"].add(task)
+        task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+
+    async def _classify_with_bedrock(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
+        """Bedrock classification in background."""
+        try:
+            # Get context
+            context_before = ""
+            context_after = ""
+            for transcript in session_data["transcripts"]:
+                if transcript.get("index") == index - 1:
+                    context_before = transcript.get("text", "")
+                elif transcript.get("index") == index + 1:
+                    context_after = transcript.get("text", "")
+            
+            # Bedrock analysis
+            segment = {
+                "index": index,
+                "speaker": speaker,
+                "text": text,
+                "context_before": context_before,
+                "context_after": context_after,
+            }
+            
+            classified = await asyncio.to_thread(
+                classify_transcript_segments,
+                [segment],
+                session_data["agenda_text"]
+            )
+            
+            if classified and len(classified) > 0:
+                result = classified[0]
+                category_ai = result.get("category", _guess_category(text))
+                alignment_ai = result.get("alignment", 0)
+                
+                result_ai = {
+                    "index": index,
+                    "text": text,
+                    "speaker": speaker,
+                    "category": category_ai,
+                    "alignment": alignment_ai,
+                    "method": "bedrock",
+                    "is_final": True
+                }
+                
+                # Send AI result
+                await websocket.send_json({
+                    "type": "realtime_classification",
+                    "action": "update",
+                    "payload": result_ai
+                })
+                
+                self.logger.info(f"Bedrock分析完了: {speaker} - {text} → [{category_ai}] {alignment_ai}%")
+            else:
+                # Fallback to keyword
+                category_fallback = _guess_category(text)
+                alignment_fallback = self._calculate_alignment(text, session_data["agenda_text"])
+                
+                result_fallback = {
+                    "index": index,
+                    "text": text,
+                    "speaker": speaker,
+                    "category": category_fallback,
+                    "alignment": alignment_fallback,
+                    "method": "keyword",
+                    "is_final": True
+                }
+                
+                await websocket.send_json({
+                    "type": "realtime_classification",
+                    "action": "update", 
+                    "payload": result_fallback
+                })
+        
+        except Exception as e:
+            self.logger.error(f"Bedrock分析失敗: {e}")
+
+    def _calculate_alignment(self, text: str, agenda_text: str) -> int:
+        """Calculate alignment with agenda."""
+        if not agenda_text or not agenda_text.strip():
             return 50
-        keywords = {"議題", "アジェンダ", "決定", "提案", "質問", "回答"}
-        matched = sum(1 for kw in keywords if kw in text)
-        if matched == 0:
-            return 40
-        return min(100, 60 + matched * 10)
+            
+        # Skip meta information
+        meta_keywords = ["議題", "タイトル", "所要時間", "発表者", "検討事項", "目的", "背景"]
+        if any(keyword in text for keyword in meta_keywords):
+            return 50
+            
+        # Extract keywords from agenda
+        agenda_keywords = set()
+        skip_keywords = {"議題", "タイトル", "所要時間", "発表者", "検討事項", "目的", "背景"}
+        
+        for line in agenda_text.splitlines():
+            line = line.strip(" -*•\t0123456789.。")
+            if not line:
+                continue
+            if any(skip in line for skip in skip_keywords):
+                continue
+            import re
+            words = [w for w in re.findall(r'[ぁ-んァ-ヶ一-龠ー]+', line) if len(w) >= 2]
+            words = [w for w in words if w not in skip_keywords]
+            agenda_keywords.update(words)
+        
+        if not agenda_keywords:
+            return 50
+            
+        # Count matches
+        text_lower = text.lower()
+        matched_count = sum(1 for keyword in agenda_keywords if keyword in text_lower)
+        
+        if matched_count == 0:
+            return 30
+            
+        match_ratio = matched_count / len(agenda_keywords)
+        alignment = min(100, int(30 + (match_ratio * 70)))
+        
+        return alignment
+
+
