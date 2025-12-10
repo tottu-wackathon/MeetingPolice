@@ -39,35 +39,37 @@ export function SessionPage() {
     }
   };
 
+  const joinSection = (
+    <section className="panel join-card">
+      <div className="panel-header">
+        <h2>参加する</h2>
+        <span className="badge ghost">Guest</span>
+      </div>
+      <p>管理者が配布した Meeting ID を入力してください。入室後に自動で文字起こしが始まります。</p>
+      <form className="meeting-form" onSubmit={handleJoin}>
+        <input
+          type="text"
+          placeholder="Meeting ID"
+          value={meetingCode}
+          onChange={(event) => setMeetingCode(event.target.value)}
+        />
+        <button type="submit" disabled={joining || status === 'connecting'}>
+          {joining ? '接続中…' : '入室する'}
+        </button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+
   return (
     <Layout
       title="MeetingPolice Live Session"
       subtitle="管理者が発行した Meeting ID を入力して Vonage でビデオ会議。音声はリアルタイム文字起こしされます。"
     >
-      <section className="panel join-card">
-        <div className="panel-header">
-          <h2>参加する</h2>
-          <span className="badge ghost">Guest</span>
-        </div>
-        <p>管理者が配布した Meeting ID を入力してください。入室後に自動で文字起こしが始まります。</p>
-        <form className="meeting-form" onSubmit={handleJoin}>
-          <input
-            type="text"
-            placeholder="Meeting ID"
-            value={meetingCode}
-            onChange={(event) => setMeetingCode(event.target.value)}
-          />
-          <button type="submit" disabled={joining || status === 'connecting'}>
-            {joining ? '接続中…' : '入室する'}
-          </button>
-        </form>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-      </section>
-
       {session ? (
         <>
           <section className="panel meeting-overview">
@@ -134,20 +136,11 @@ export function SessionPage() {
             handRaised={handRaised}
             onToggleMute={toggleMute}
             onToggleVideo={toggleVideo}
-            onToggleHand={toggleHand}
             onLeave={leaveMeeting}
           />
         </>
       ) : (
-        <section className="panel hero-session">
-          <h2>poc_satomin のフローを踏襲したライブモード</h2>
-          <p>上の「セッションを作成」で Meeting ID を発行し、参加者に共有してください。</p>
-          <ul className="instructions">
-            <li>参加者は共有された ID を入力して Vonage でビデオ参加できます。</li>
-            <li>接続すると自動で文字起こしが開始され、左側のパネルに流れます。</li>
-            <li>マイクとカメラは下部のコントロールバーでいつでも切り替え可能です。</li>
-          </ul>
-        </section>
+        joinSection
       )}
     </Layout>
   );
