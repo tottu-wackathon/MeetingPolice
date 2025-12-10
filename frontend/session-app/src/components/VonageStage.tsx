@@ -19,70 +19,80 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
   const subscriberContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!apiKey || !sessionId || !token) return undefined;
+    if (!apiKey || !sessionId || !token) {
+      setStatus('error');
+      setError('Vonage の接続情報が不足しています（音声のみの利用は可能です）');
+      return undefined;
+    }
 
     const OTClient: any = OT as any;
     if (!OTClient?.initSession) {
       setStatus('error');
-      setError('Vonage SDK を読み込めませんでした。');
+      setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
     }
 
     setStatus('connecting');
     setError(null);
-    const session = OTClient.initSession(apiKey, sessionId);
-    sessionRef.current = session;
 
-    session.on('sessionConnected', () => setStatus('connected'));
-    session.on('sessionDisconnected', () => setStatus('idle'));
+    try {
+      const session = OTClient.initSession(apiKey, sessionId);
+      sessionRef.current = session;
 
-    session.on('streamCreated', (event: any) => {
-      if (!subscriberContainerRef.current) return;
-      session.subscribe(
-        event.stream,
-        subscriberContainerRef.current,
-        { insertMode: 'append', width: '100%', height: '100%' },
+      session.on('sessionConnected', () => setStatus('connected'));
+      session.on('sessionDisconnected', () => setStatus('idle'));
+
+      session.on('streamCreated', (event: any) => {
+        if (!subscriberContainerRef.current) return;
+        session.subscribe(
+          event.stream,
+          subscriberContainerRef.current,
+          { insertMode: 'append', width: '100%', height: '100%' },
+          (err: any) => {
+            if (err) {
+              setError(err.message || String(err));
+            }
+          },
+        );
+      });
+
+      const publisherOptions = {
+        insertMode: 'append' as const,
+        width: '100%',
+        height: '100%',
+        publishAudio: !muted,
+        publishVideo: !videoOff,
+        mirror: true,
+        name: 'You',
+      };
+
+      const publisher = OTClient.initPublisher(
+        publisherContainerRef.current,
+        publisherOptions,
         (err: any) => {
           if (err) {
             setError(err.message || String(err));
           }
         },
       );
-    });
+      publisherRef.current = publisher;
 
-    const publisherOptions = {
-      insertMode: 'append' as const,
-      width: '100%',
-      height: '100%',
-      publishAudio: !muted,
-      publishVideo: !videoOff,
-      mirror: true,
-      name: 'You',
-    };
-
-    const publisher = OTClient.initPublisher(
-      publisherContainerRef.current,
-      publisherOptions,
-      (err: any) => {
+      session.connect(token, (err: any) => {
         if (err) {
+          setStatus('error');
           setError(err.message || String(err));
+          return;
         }
-      },
-    );
-    publisherRef.current = publisher;
-
-    session.connect(token, (err: any) => {
-      if (err) {
-        setStatus('error');
-        setError(err.message || String(err));
-        return;
-      }
-      session.publish(publisher, (pubErr: any) => {
-        if (pubErr) {
-          setError(pubErr.message || String(pubErr));
-        }
+        session.publish(publisher, (pubErr: any) => {
+          if (pubErr) {
+            setError(pubErr.message || String(pubErr));
+          }
+        });
       });
-    });
+    } catch (err) {
+      setStatus('error');
+      setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
+    }
 
     return () => {
       try {
@@ -124,7 +134,8 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
       <div className="video-grid">
         <div className="video-tile speaking">
           <div className="video-feed" ref={publisherContainerRef}>
-            {!publisherRef.current && <p className="video-placeholder">カメラを初期化しています…</p>}
+            {!publisherRef.current && status !== 'error' && <p className="video-placeholder">カメラを初期化しています…</p>}
+            {status === 'error' && <p className="video-placeholder">ビデオを開始できませんでした。</p>}
           </div>
           <div className="video-meta">
             <div>
