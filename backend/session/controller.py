@@ -4,6 +4,7 @@ import asyncio
 from contextlib import suppress
 import queue
 import threading
+import logging
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
@@ -20,6 +21,7 @@ class SessionController:
         self.vonage = VonageClient()
         self.transcribe = TranscribeStream()
         self.repository = repository or MeetingRepository()
+        self.logger = logging.getLogger(__name__)
 
     def _build_session_payload(self, meeting, session_id: str, token: str) -> dict:
         return {
@@ -36,6 +38,7 @@ class SessionController:
             raise ValueError("title is required")
 
         meeting = self.repository.create_meeting(title=title.strip(), scheduled_for=scheduled_for)
+        self.logger.info("Creating meeting meeting_id=%s title=%s", meeting.meeting_id, meeting.title)
         session = self.vonage.create_session(meeting.meeting_id)
         session_id = session["session_id"]
         meeting = self.repository.update_meeting(
@@ -43,11 +46,13 @@ class SessionController:
         )
 
         token = self.vonage.generate_token(session_id=session_id)
+        self.logger.info("Vonage credentials issued meeting_id=%s session_id=%s", meeting.meeting_id, session_id)
         return self._build_session_payload(meeting, session_id, token)
 
     def create_session_token(self, meeting_id: str) -> dict:
         meeting = self.repository.get_meeting(meeting_id)
         if not meeting:
+            self.logger.warning("Join requested for missing meeting_id=%s", meeting_id)
             raise ValueError("Meeting not found")
 
         session_id = meeting.session_id
@@ -57,7 +62,16 @@ class SessionController:
             meeting = self.repository.update_meeting(meeting_id, session_id=session_id, status="live")
 
         token = self.vonage.generate_token(session_id=session_id)
+        self.logger.info("Join token issued meeting_id=%s session_id=%s", meeting_id, session_id)
         return self._build_session_payload(meeting, session_id, token)
+
+    def validate_meeting(self, meeting_id: str) -> dict:
+        meeting = self.repository.get_meeting(meeting_id)
+        if not meeting:
+            self.logger.warning("Validation failed missing meeting_id=%s", meeting_id)
+            raise ValueError("Meeting not found")
+        self.logger.info("Validation success meeting_id=%s", meeting_id)
+        return {"meeting_id": meeting.meeting_id, "status": meeting.status, "title": meeting.title}
 
     async def stream_transcripts(self, websocket: WebSocket, meeting_id: str) -> None:
         meeting = self.repository.get_meeting(meeting_id)

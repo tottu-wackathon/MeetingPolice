@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { MeetingSession, Participant } from '../types';
+import { validateMeetingId } from '../services/api';
 
 export function useMeetingSession() {
   const envApiKey = import.meta.env.VITE_VONAGE_APP_ID as string | undefined;
@@ -17,6 +18,23 @@ export function useMeetingSession() {
   const connect = async (meetingId: string) => {
     setStatus('connecting');
     setError(null);
+    const trimmed = meetingId.trim();
+    if (!trimmed) {
+      setStatus('error');
+      setError('Meeting ID を入力してください');
+      throw new Error('Meeting ID required');
+    }
+
+    // バリデーション: バックエンドのミーティング存在確認のみ使う（Vonage 資格情報は使用しない）
+    try {
+      await validateMeetingId(trimmed);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '入力されたIDのミーティングは開催されていません';
+      setStatus('error');
+      setError(message);
+      throw err;
+    }
+
     // Vonage 接続は .env の固定値のみを使う
     if (hasEnvSession) {
       const fallbackSession: MeetingSession = {

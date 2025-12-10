@@ -111,6 +111,10 @@ export async function startPocRun(formData: FormData): Promise<{ job_id: string 
   return request<{ job_id: string }>('/poc/start', { method: 'POST', body: formData }, false);
 }
 
+export async function validateMeetingId(meetingId: string): Promise<{ meeting_id: string; status: string; title: string }> {
+  return request<{ meeting_id: string; status: string; title: string }>(`/session/meetings/${meetingId}/validate`, { method: 'GET' });
+}
+
 export async function fetchPocJob(jobId: string): Promise<PocJobDetail> {
   return request<PocJobDetail>(`/poc/jobs/${jobId}`);
 }
