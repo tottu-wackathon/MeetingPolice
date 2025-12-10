@@ -17,8 +17,16 @@ const buildWsUrl = (meetingId: string) => {
 export function useTranscripts(
   meetingId?: string,
   onClassification?: (payload: any) => void,
+  isMuted?: boolean,
 ) {
   const [transcripts, setTranscripts] = useState<LiveTranscript[]>([]);
+
+  // ミュート状態の変更をログ出力
+  useEffect(() => {
+    if (meetingId) {
+      console.log('[useTranscripts] Mute status changed:', isMuted ? 'MUTED' : 'UNMUTED');
+    }
+  }, [isMuted, meetingId]);
 
   useEffect(() => {
     if (!meetingId) {
@@ -126,6 +134,11 @@ export function useTranscripts(
             return;
           }
           
+          // ミュート状態の場合は音声を送信しない
+          if (isMuted) {
+            return;
+          }
+          
           const input = event.inputBuffer.getChannelData(0);
           
           // Convert to 16-bit PCM
@@ -142,7 +155,7 @@ export function useTranscripts(
             audioSentCount++;
             
             if (audioSentCount % 100 === 0) {
-              console.log(`[useTranscripts] Sent audio packet #${audioSentCount}`);
+              console.log(`[useTranscripts] Sent audio packet #${audioSentCount} (muted: ${isMuted})`);
             }
           } catch (err) {
             console.error('[useTranscripts] Failed to send audio data:', err);

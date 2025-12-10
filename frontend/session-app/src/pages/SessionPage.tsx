@@ -46,7 +46,8 @@ export function SessionPage() {
         
         return [...prev, { index, text, speaker, category, alignment, method, is_final }];
       });
-    }
+    },
+    isMuted // ミュート状態を渡す
   );
   
   // poc_satominと同じ警告機能
