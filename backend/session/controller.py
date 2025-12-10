@@ -110,11 +110,17 @@ class SessionController:
 
         def run_transcribe() -> None:
             try:
+                self.logger.info("Starting AWS Transcribe streaming for meeting_id=%s", meeting_id)
                 self.transcribe.stream_audio(audio_queue, handle_transcript)
+                self.logger.info("AWS Transcribe streaming completed for meeting_id=%s", meeting_id)
             except Exception as e:
-                self.logger.error("Transcribe failed, using mock mode: %s", e)
+                self.logger.error("Transcribe failed for meeting_id=%s: %s", meeting_id, e)
+                self.logger.info("Falling back to mock transcription for meeting_id=%s", meeting_id)
                 # Mock transcription for testing
-                self._run_mock_transcribe(audio_queue, handle_transcript)
+                try:
+                    self._run_mock_transcribe(audio_queue, handle_transcript)
+                except Exception as mock_error:
+                    self.logger.error("Mock transcription also failed: %s", mock_error)
             finally:
                 stop_event.set()
 
