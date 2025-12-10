@@ -349,13 +349,9 @@ export function SessionPage() {
           </div>
         </section>
 
-        {/* poc_satominと同じ2列レイアウト */}
+        {/* 2列レイアウト: 左側に文字起こし、右側にリアルタイム分析 */}
         <div className="poc-columns">
           <div className="poc-left">
-            {/* 左側は空 - sessionでは参加者一覧が上にあるため */}
-          </div>
-
-          <div className="poc-right">
             <section className="panel transcript-panel">
               <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
@@ -377,6 +373,9 @@ export function SessionPage() {
                 {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
               </div>
             </section>
+          </div>
+
+          <div className="poc-right">
 
             <section className="panel">
               <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
