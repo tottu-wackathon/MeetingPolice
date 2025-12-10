@@ -14,7 +14,10 @@ const buildWsUrl = (meetingId: string) => {
   return `${origin}${base}/session/ws/${meetingId}`;
 };
 
-export function useTranscripts(meetingId?: string) {
+export function useTranscripts(
+  meetingId?: string,
+  onClassification?: (payload: any) => void,
+) {
   const [transcripts, setTranscripts] = useState<LiveTranscript[]>([]);
 
   useEffect(() => {
@@ -31,6 +34,10 @@ export function useTranscripts(meetingId?: string) {
     ws.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload?.type === 'realtime_classification') {
+          onClassification?.(payload.payload);
+          return;
+        }
         const entry: LiveTranscript = {
           meetingId,
           transcript: payload.transcript ?? '',

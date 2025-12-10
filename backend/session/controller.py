@@ -5,6 +5,7 @@ from contextlib import suppress
 import queue
 import threading
 import logging
+from typing import Any
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
@@ -12,6 +13,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 from backend.services.vonage_client import VonageClient
 from backend.services.transcribe_stream import TranscribeStream
 from backend.services.comprehend_utils import analyze_sentiment
+from backend.services.bedrock_utils import classify_transcript_segments, _guess_category
 from backend.services.repository import MeetingRepository
 from backend.utils.time_utils import now_iso
 
@@ -22,6 +24,7 @@ class SessionController:
         self.transcribe = TranscribeStream()
         self.repository = repository or MeetingRepository()
         self.logger = logging.getLogger(__name__)
+        self._classification_index = 1
 
     def _build_session_payload(self, meeting, session_id: str, token: str) -> dict:
         return {
@@ -91,6 +94,7 @@ class SessionController:
                 )
                 return
             message = {
+                "type": "transcript",
                 "meeting_id": meeting_id,
                 "timestamp": now_iso(),
                 "transcript": payload.get("transcript", ""),
@@ -98,6 +102,11 @@ class SessionController:
                 "is_partial": payload.get("is_partial", False),
             }
             asyncio.run_coroutine_threadsafe(websocket.send_json(message), loop)
+            if not payload.get("is_partial") and payload.get("transcript"):
+                asyncio.run_coroutine_threadsafe(
+                    self._classify_and_send(websocket, meeting_id, payload.get("transcript", "")),
+                    loop,
+                )
 
         def run_transcribe() -> None:
             self.transcribe.stream_audio(audio_queue, handle_transcript)
@@ -129,3 +138,40 @@ class SessionController:
             if websocket.application_state == WebSocketState.CONNECTED:
                 with suppress(RuntimeError):
                     await websocket.close(code=1000)
+
+    async def _classify_and_send(self, websocket: WebSocket, meeting_id: str, text: str) -> None:
+        """Run Bedrock分類と簡易一致度計算を行い、WebSocketへ送信する."""
+        try:
+            # 簡易一致度: アジェンダ不明なので中立とする
+            alignment = self._calculate_alignment(text)
+            segments = [{"index": self._classification_index, "speaker": "unknown", "text": text}]
+            self._classification_index += 1
+            classified = await asyncio.to_thread(classify_transcript_segments, segments, "")
+            category = classified[0].get("category") if classified else _guess_category(text)
+            payload: dict[str, Any] = {
+                "type": "realtime_classification",
+                "payload": {
+                    "index": segments[0]["index"],
+                    "text": text,
+                    "speaker": "unknown",
+                    "category": category,
+                    "alignment": alignment,
+                    "method": "bedrock",
+                    "is_final": True,
+                    "timestamp": now_iso(),
+                    "meeting_id": meeting_id,
+                },
+            }
+            await websocket.send_json(payload)
+        except Exception:
+            self.logger.exception("classification failed meeting_id=%s", meeting_id)
+
+    def _calculate_alignment(self, text: str) -> int:
+        """簡易一致度: 議題不明のためキーワードベースでざっくり算出."""
+        if not text:
+            return 50
+        keywords = {"議題", "アジェンダ", "決定", "提案", "質問", "回答"}
+        matched = sum(1 for kw in keywords if kw in text)
+        if matched == 0:
+            return 40
+        return min(100, 60 + matched * 10)
