@@ -41,9 +41,7 @@ export function SessionPage() {
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([
-    { id: 'local', name: 'You', role: 'host', isSpeaking: false },
-    { id: 'guest1', name: 'Guest 1', role: 'guest', isSpeaking: false },
-    { id: 'guest2', name: 'Guest 2', role: 'guest', isSpeaking: false }
+    { id: 'local', name: 'You', role: 'host', isSpeaking: false }
   ]);
   const [alignmentAlert, setAlignmentAlert] = useState<string | null>(null);
   const [avgAlignment, setAvgAlignment] = useState<number | null>(null);
@@ -153,40 +151,42 @@ export function SessionPage() {
                 <div className="participant-avatar">
                   {p.name?.charAt(0) || 'G'}
                 </div>
-                <div className="participant-controls">
-                  <button 
-                    type="button" 
-                    onClick={toggleMute} 
-                    className={`control-btn ${isMuted ? 'off' : ''}`}
-                    title={isMuted ? 'ミュート解除' : 'ミュート'}
-                  >
-                    {isMuted ? '🔇' : '🎙️'}
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={toggleVideo} 
-                    className={`control-btn ${isVideoOff ? 'off' : ''}`}
-                    title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}
-                  >
-                    {isVideoOff ? '📷' : '🎥'}
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={toggleHand} 
-                    className={`control-btn ${handRaised ? 'active' : ''}`}
-                    title={handRaised ? '手を下げる' : '手を挙げる'}
-                  >
-                    ✋
-                  </button>
-                  <button 
-                    type="button" 
-                    className="control-btn danger" 
-                    onClick={handleLeave} 
-                    title="退出"
-                  >
-                    🚪
-                  </button>
-                </div>
+                {p.id === 'local' && (
+                  <div className="participant-controls">
+                    <button 
+                      type="button" 
+                      onClick={toggleMute} 
+                      className={`control-btn ${isMuted ? 'off' : ''}`}
+                      title={isMuted ? 'ミュート解除' : 'ミュート'}
+                    >
+                      {isMuted ? '🔇' : '🎙️'}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={toggleVideo} 
+                      className={`control-btn ${isVideoOff ? 'off' : ''}`}
+                      title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}
+                    >
+                      {isVideoOff ? '📷' : '🎥'}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={toggleHand} 
+                      className={`control-btn ${handRaised ? 'active' : ''}`}
+                      title={handRaised ? '手を下げる' : '手を挙げる'}
+                    >
+                      ✋
+                    </button>
+                    <button 
+                      type="button" 
+                      className="control-btn danger" 
+                      onClick={handleLeave} 
+                      title="退出"
+                    >
+                      🚪
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
