@@ -34,6 +34,13 @@ export function SessionPage() {
       return [...prev, payload].slice(-20);
     });
   });
+
+  // セッションがない場合はリアルタイム分類もクリア
+  useEffect(() => {
+    if (!session) {
+      setRealtimeClassifications([]);
+    }
+  }, [session]);
   const { meetingId } = useParams();
   const navigate = useNavigate();
 
@@ -197,20 +204,22 @@ export function SessionPage() {
           <section className="panel transcript-panel">
             <div className="panel-header">
               <h2>文字起こし</h2>
-              <span className="badge">{transcripts.length}</span>
+              <span className="badge">{transcripts.filter(entry => entry.transcript && entry.transcript.trim()).length}</span>
             </div>
             <div className="transcript-list">
-              {transcripts.length === 0 && (
+              {transcripts.filter(entry => entry.transcript && entry.transcript.trim()).length === 0 && (
                 <p className="empty">発言を開始すると文字起こしが表示されます。</p>
               )}
-              {transcripts.map((entry, index) => (
-                <div key={`${entry.timestamp}-${index}`} className="transcript-item">
-                  <div className="transcript-meta">
-                    <span className="time">{formatTime(new Date(entry.timestamp))}</span>
+              {transcripts
+                .filter(entry => entry.transcript && entry.transcript.trim())
+                .map((entry, index) => (
+                  <div key={`${entry.timestamp}-${index}`} className="transcript-item">
+                    <div className="transcript-meta">
+                      <span className="time">{formatTime(new Date(entry.timestamp))}</span>
+                    </div>
+                    <p className="transcript-text">{entry.transcript}</p>
                   </div>
-                  <p className="transcript-text">{entry.transcript || '…'}</p>
-                </div>
-              ))}
+                ))}
             </div>
           </section>
 
