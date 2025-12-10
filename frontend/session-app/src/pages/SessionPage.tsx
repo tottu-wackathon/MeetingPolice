@@ -361,41 +361,30 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts
-                  .sort((a, b) => {
-                    // Sort by index first, then by timestamp
-                    const aIndex = (a as any).index || 0;
-                    const bIndex = (b as any).index || 0;
-                    if (aIndex !== bIndex) {
-                      return bIndex - aIndex; // Reverse order (newest first)
-                    }
-                    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-                  })
-                  .map((item) => {
-                    const itemData = item as any;
-                    // Use result_id as primary key, fallback to index
-                    const key = itemData.result_id ?? `idx-${itemData.index}`;
-                    
-                    console.log('[SessionPage] Rendering item:', {
-                      key: key,
-                      text: item.transcript,
-                      result_id: itemData.result_id,
-                      index: itemData.index,
-                      is_partial: item.isPartial
-                    });
-                    
-                    return (
-                      <article key={key} className="transcript-item">
-                        <header>
-                          <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
-                          {itemData.raw_speaker && <span className="pill mono">{itemData.raw_speaker}</span>}
-                          <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
-                          {item.isPartial && <span className="pill partial">部分</span>}
-                        </header>
-                        <p className={item.isPartial ? 'partial-text' : ''}>{item.transcript}</p>
-                      </article>
-                    );
-                  })}
+                {transcripts.slice().reverse().map((item) => {
+                  const itemData = item as any;
+                  // Use result_id as primary key, fallback to index
+                  const key = itemData.result_id ?? `idx-${itemData.index}`;
+                  
+                  console.log('[SessionPage] Rendering item:', {
+                    key: key,
+                    text: item.transcript,
+                    result_id: itemData.result_id,
+                    index: itemData.index
+                  });
+                  
+                  return (
+                    <article key={key} className="transcript-item">
+                      <header>
+                        <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
+                        {itemData.raw_speaker && <span className="pill mono">{itemData.raw_speaker}</span>}
+                        <span>{item.timestamp}</span>
+                        {item.isPartial && <span className="pill">部分</span>}
+                      </header>
+                      <p>{item.transcript}</p>
+                    </article>
+                  );
+                })}
                 {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
               </div>
             </section>
