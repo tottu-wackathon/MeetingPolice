@@ -1,10 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ControlBar } from '../components/ControlBar';
 import { Layout } from '../components/Layout';
-import { MetricsPanel } from '../components/MetricsPanel';
-import { VonageStage } from '../components/VonageStage';
-import { useAnalyticsStream } from '../hooks/useAnalyticsStream';
+
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
 import { formatTime } from '../utils/time';
@@ -24,7 +21,7 @@ export function SessionPage() {
     toggleVideo,
     toggleHand,
   } = useMeetingSession();
-  const { samples } = useAnalyticsStream(session?.meetingId);
+
   const [realtimeClassifications, setRealtimeClassifications] = useState<
     Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; timestamp?: string }>
   >([]);
@@ -43,7 +40,11 @@ export function SessionPage() {
   const [meetingCode, setMeetingCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
+  const [participants, setParticipants] = useState<Participant[]>([
+    { id: 'local', name: 'You', role: 'host', isSpeaking: false },
+    { id: 'guest1', name: 'Guest 1', role: 'guest', isSpeaking: false },
+    { id: 'guest2', name: 'Guest 2', role: 'guest', isSpeaking: false }
+  ]);
   const [alignmentAlert, setAlignmentAlert] = useState<string | null>(null);
   const [avgAlignment, setAvgAlignment] = useState<number | null>(null);
 
@@ -116,10 +117,6 @@ export function SessionPage() {
     navigate('/');
   };
 
-  const videoEnabled = Boolean(session?.videoEnabled && session?.apiKey && session?.sessionId && session?.token);
-  const videoFallbackMessage = !videoEnabled
-    ? 'ビデオ資格情報を取得できなかったため音声のみで参加しています。'
-    : null;
   const participantCount = participants.length;
 
   useEffect(() => {
@@ -148,106 +145,121 @@ export function SessionPage() {
   if (session) {
     content = (
       <>
-        <div className="session-grid">
-          <div className="left-column">
-            <VonageStage
-              apiKey={session.apiKey}
-              sessionId={session.sessionId}
-              token={session.token}
-              muted={isMuted}
-              videoOff={isVideoOff}
-              enabled={videoEnabled}
-              fallbackNotice={videoFallbackMessage}
-              onParticipantsChange={(list) => {
-                const normalized = list.map((p) => ({
-                  id: p.id,
-                  name: p.name || 'Guest',
-                  role: p.role,
-                  isSpeaking: false,
-                }));
-                setParticipants(normalized.length > 0 ? normalized : [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
-              }}
-            />
-            <section className="panel transcript-panel compact">
-              <div className="panel-header">
-                <h2>文字起こし</h2>
-                <span className="badge">{transcripts.length}</span>
-              </div>
-              <div className="transcript-list">
-                {transcripts.length === 0 && (
-                  <p className="empty">発話すると表示されます。</p>
-                )}
-                {transcripts.map((entry, index) => (
-                  <div key={`${entry.timestamp}-${index}`} className="transcript-item">
-                    <div className="transcript-meta">
-                      <span className="time">{formatTime(new Date(entry.timestamp))}</span>
-                    </div>
-                    <p className="transcript-text">{entry.transcript || '…'}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-
-          <div className="right-column">
-            <section className="panel classification-panel compact">
-              <div className="panel-header">
-                <div>
-                  <h2>リアルタイム分類</h2>
-                </div>
-                {avgAlignment !== null && (
-                  <span className="badge ghost">平均 {avgAlignment}%</span>
-                )}
-              </div>
-              {alignmentAlert && <p className="error" role="alert">{alignmentAlert}</p>}
-              {realtimeClassifications.length === 0 && (
-                <p className="faded">確定した発話が分類されます。</p>
-              )}
-              {realtimeClassifications.length > 0 && (
-                <div className="classification-list">
-                  {realtimeClassifications.slice().reverse().map((item) => (
-                    <article key={item.index} className="classification-row">
-                      <div className="classification-meta">
-                        <span className="category-tag">{item.category}</span>
-                        <span className="alignment-tag">{typeof item.alignment === 'number' ? `${item.alignment}%` : '―'}</span>
-                      </div>
-                      <p>{item.text}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-            <MetricsPanel samples={samples} />
-          </div>
-        </div>
-
-        <section className="panel meeting-overview compact">
-          <div className="session-meta small">
-            <span className="badge ghost">Meeting ID</span>
-            <code>{session.meetingId}</code>
-            <span className="badge ghost">Status</span>
-            <span className="mono">{status}</span>
-            <span className="badge ghost">Participants</span>
-            <span className="mono">{participantCount}</span>
-          </div>
-          <div className="participant-chips">
+        {/* 参加者一覧 */}
+        <section className="panel participants-panel">
+          <div className="participants-grid">
             {participants.map((p) => (
-              <span key={p.id} className="badge ghost">
-                👤 {p.name || 'Guest'}
-              </span>
+              <div key={p.id} className="participant-window">
+                <div className="participant-avatar">
+                  {p.name?.charAt(0) || 'G'}
+                </div>
+                <div className="participant-controls">
+                  <button 
+                    type="button" 
+                    onClick={toggleMute} 
+                    className={`control-btn ${isMuted ? 'off' : ''}`}
+                    title={isMuted ? 'ミュート解除' : 'ミュート'}
+                  >
+                    {isMuted ? '🔇' : '🎙️'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={toggleVideo} 
+                    className={`control-btn ${isVideoOff ? 'off' : ''}`}
+                    title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}
+                  >
+                    {isVideoOff ? '📷' : '🎥'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={toggleHand} 
+                    className={`control-btn ${handRaised ? 'active' : ''}`}
+                    title={handRaised ? '手を下げる' : '手を挙げる'}
+                  >
+                    ✋
+                  </button>
+                  <button 
+                    type="button" 
+                    className="control-btn danger" 
+                    onClick={handleLeave} 
+                    title="退出"
+                  >
+                    🚪
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </section>
 
-        <ControlBar
-          isMuted={isMuted}
-          isVideoOff={isVideoOff}
-          handRaised={handRaised}
-          onToggleMute={toggleMute}
-          onToggleVideo={toggleVideo}
-          onToggleHand={toggleHand}
-          onLeave={handleLeave}
-        />
+        {/* 文字起こしとリアルタイム分類の2列レイアウト */}
+        <div className="content-grid">
+          <section className="panel transcript-panel">
+            <div className="panel-header">
+              <h2>文字起こし</h2>
+              <span className="badge">{transcripts.length}</span>
+            </div>
+            <div className="transcript-list">
+              {transcripts.length === 0 && (
+                <p className="empty">発話すると表示されます。</p>
+              )}
+              {transcripts.map((entry, index) => (
+                <div key={`${entry.timestamp}-${index}`} className="transcript-item">
+                  <div className="transcript-meta">
+                    <span className="time">{formatTime(new Date(entry.timestamp))}</span>
+                  </div>
+                  <p className="transcript-text">{entry.transcript || '…'}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel classification-panel">
+            <div className="panel-header">
+              <div>
+                <h2>リアルタイム分類</h2>
+              </div>
+              {avgAlignment !== null && (
+                <span className="badge ghost">平均 {avgAlignment}%</span>
+              )}
+            </div>
+            {alignmentAlert && <p className="error" role="alert">{alignmentAlert}</p>}
+            {realtimeClassifications.length === 0 && (
+              <p className="faded">確定した発話が分類されます。</p>
+            )}
+            {realtimeClassifications.length > 0 && (
+              <div className="classification-list">
+                {realtimeClassifications.slice().reverse().map((item) => (
+                  <article key={item.index} className="classification-row">
+                    <div className="classification-meta">
+                      <span className="category-tag">{item.category}</span>
+                      <span className="alignment-tag">{typeof item.alignment === 'number' ? `${item.alignment}%` : '―'}</span>
+                    </div>
+                    <p>{item.text}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* ステータス情報 */}
+        <section className="panel status-panel">
+          <div className="status-grid">
+            <div className="status-item">
+              <span className="status-label">ID</span>
+              <code className="status-value">{session.meetingId}</code>
+            </div>
+            <div className="status-item">
+              <span className="status-label">状態</span>
+              <span className="status-value">{status}</span>
+            </div>
+            <div className="status-item">
+              <span className="status-label">参加人数</span>
+              <span className="status-value">{participantCount}</span>
+            </div>
+          </div>
+        </section>
       </>
     );
   }

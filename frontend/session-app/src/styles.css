@@ -322,12 +322,69 @@ strong {
 }
 
 /* ===== 文字起こし ===== */
-.transcript-feed {
+.transcript-feed,
+.transcript-list {
   max-height: 360px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* ===== 分類リスト ===== */
+.classification-list {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.classification-row {
+  background: rgba(10, 14, 39, 0.9) !important;
+  border: 1px solid #00ffff !important;
+  border-radius: 8px;
+  padding: 0.75rem !important;
+  transition: all 0.2s ease;
+}
+
+.classification-row:hover {
+  border-color: #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+}
+
+.classification-meta {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.category-tag {
+  background: rgba(0, 255, 255, 0.2);
+  color: #00ffff !important;
+  border: 1px solid #00ffff;
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.alignment-tag {
+  background: rgba(0, 255, 0, 0.2);
+  color: #00ff00 !important;
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.classification-row p {
+  color: #00ffff !important;
+  margin: 0 !important;
+  line-height: 1.4;
 }
 
 .transcript-item {
@@ -461,7 +518,159 @@ strong {
   font-size: 1em !important;
 }
 
-/* ===== 2列レイアウト ===== */
+/* ===== 参加者一覧 ===== */
+.participants-panel {
+  margin-bottom: 1.5rem;
+}
+
+.participants-grid {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.participant-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: rgba(10, 14, 39, 0.8);
+  border: 2px solid #00ffff;
+  border-radius: 12px;
+  min-width: 120px;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.participant-window:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.5);
+}
+
+.participant-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00ffff, #00ff00);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #0a0e27;
+  text-shadow: none;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+}
+
+.participant-controls {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.control-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #00ffff;
+  background: rgba(0, 255, 255, 0.2);
+  color: #00ffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.control-btn:hover {
+  background: rgba(0, 255, 0, 0.3);
+  border-color: #00ff00;
+  transform: scale(1.1);
+}
+
+.control-btn.off {
+  background: rgba(255, 0, 0, 0.3);
+  border-color: #ff0000;
+  color: #ff0000;
+}
+
+.control-btn.active {
+  background: rgba(255, 255, 0, 0.3);
+  border-color: #ffff00;
+  color: #ffff00;
+}
+
+.control-btn.danger {
+  background: rgba(255, 0, 0, 0.3);
+  border-color: #ff0000;
+  color: #ff0000;
+}
+
+/* ===== コンテンツグリッド（文字起こし + 分類） ===== */
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== ステータスパネル ===== */
+.status-panel {
+  margin-bottom: 1rem;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .status-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-label {
+  font-size: 0.9rem;
+  color: #00ffff !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: bold;
+}
+
+.status-value {
+  font-size: 1.2rem;
+  color: #00ff00 !important;
+  font-weight: bold;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 255, 0, 0.1);
+  border: 2px solid #00ff00;
+  border-radius: 8px;
+  min-width: 80px;
+}
+
+/* ===== 2列レイアウト（PoC用） ===== */
 .poc-columns {
   display: flex;
   gap: 1rem;
@@ -592,7 +801,8 @@ audio {
 
 
 
-.empty {
+.empty,
+.faded {
   color: rgba(255, 255, 255, 0.7) !important;
 }
 
