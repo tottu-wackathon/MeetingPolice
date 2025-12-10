@@ -38,6 +38,13 @@ class PocJob:
     pending_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     processed_result_ids: set[str] = field(default_factory=set)
     classified_segments: list[dict[str, Any]] = field(default_factory=list)
+    # リアルタイム分析用の新しいフィールド
+    accumulated_text: str = ""  # 蓄積されたテキスト
+    accumulated_count: int = 0  # 蓄積文字数
+    last_bedrock_time: float = 0  # 最後にBedrock送信した時刻
+    current_speaker: str = ""  # 現在の話者
+    threshold_chars: int = 30  # 暫定判定の文字数閾値（50→30に短縮）
+    min_interval_seconds: int = 3  # 最小送信間隔（5→3秒に短縮）
 
 
 class POCController:
@@ -125,7 +132,7 @@ class POCController:
         return classified
 #最終結果が出たら分析開始する
 async def classify_realtime(self, job_id: str, text: str, speaker: str, index: int) -> dict[str, Any]:
-    """リアルタイムで1つの発言を簡易分析（ハイブリッド方式）"""
+    """リアルタイムで1つの発言を簡易分析（改善版：文字数ベース）"""
     job = self.get_job(job_id)
     if not job:
         raise KeyError(job_id)
@@ -147,10 +154,135 @@ async def classify_realtime(self, job_id: str, text: str, speaker: str, index: i
     # すぐにクライアントに通知
     await job.queue.put({"type": "realtime_classification", "payload": result_quick})
     
-    # ステップ2: バックグラウンドでBedrockに送信（非同期）
-    asyncio.create_task(self._classify_with_bedrock(job, text, speaker, index))
+    # ステップ2: 文字数ベースの暫定判定ロジック
+    await self._handle_accumulated_analysis(job, text, speaker, index)
     
     return result_quick
+
+async def _handle_accumulated_analysis(self, job: PocJob, text: str, speaker: str, index: int) -> None:
+    """文字数ベースの蓄積分析処理"""
+    import time
+    
+    current_time = time.time()
+    
+    # 話者が変わったら蓄積をリセット
+    if job.current_speaker and job.current_speaker != speaker:
+        if job.accumulated_text.strip():
+            # 前の話者の最終確定判定
+            await self._send_final_bedrock_analysis(job, job.accumulated_text, job.current_speaker)
+        job.accumulated_text = ""
+        job.accumulated_count = 0
+    
+    # 現在の話者を更新
+    job.current_speaker = speaker
+    
+    # テキストを蓄積
+    job.accumulated_text += text + " "
+    job.accumulated_count += len(text)
+    
+    # 暫定判定の条件チェック
+    chars_ok = job.accumulated_count >= job.threshold_chars
+    time_ok = (current_time - job.last_bedrock_time) >= job.min_interval_seconds
+    should_send_interim = chars_ok and time_ok
+    
+    self.logger.info(
+        f"蓄積状況: job_id={job.job_id}, speaker={speaker}, "
+        f"chars={job.accumulated_count}/{job.threshold_chars}, "
+        f"time_since_last={current_time - job.last_bedrock_time:.1f}s/{job.min_interval_seconds}s, "
+        f"should_send={should_send_interim}"
+    )
+    
+    if should_send_interim:
+        # 暫定判定を送信
+        await self._send_interim_bedrock_analysis(job, job.accumulated_text, speaker, index)
+        job.last_bedrock_time = current_time
+        
+        self.logger.info(
+            f"🚀 暫定判定送信: job_id={job.job_id}, speaker={speaker}, "
+            f"chars={job.accumulated_count}, text_preview={job.accumulated_text[:30]}..."
+        )
+
+async def _send_interim_bedrock_analysis(self, job: PocJob, accumulated_text: str, speaker: str, index: int) -> None:
+    """暫定判定用のBedrock分析"""
+    try:
+        # 蓄積されたテキストでBedrock分析
+        segment = {
+            "index": index,
+            "speaker": speaker,
+            "text": accumulated_text.strip(),
+            "context_before": "",
+            "context_after": "",
+        }
+        
+        classified = await asyncio.to_thread(
+            classify_transcript_segments,
+            [segment],
+            job.agenda_text
+        )
+        
+        if classified and len(classified) > 0:
+            result = classified[0]
+            category_ai = result.get("category", _guess_category(accumulated_text))
+            alignment_ai = result.get("alignment", 0)
+            
+            result_interim = {
+                "index": index,
+                "text": accumulated_text.strip(),
+                "speaker": speaker,
+                "category": category_ai,
+                "alignment": alignment_ai,
+                "method": "bedrock_interim",  # 暫定AI分析
+                "is_final": False,  # まだ暫定
+                "accumulated_chars": job.accumulated_count
+            }
+            
+            # 暫定結果をクライアントに通知
+            await job.queue.put({"type": "realtime_classification", "action": "interim", "payload": result_interim})
+            
+            self.logger.info(f"暫定Bedrock分析完了: {speaker} - [{category_ai}] {alignment_ai}% ({job.accumulated_count}文字)")
+    
+    except Exception as e:
+        self.logger.exception(f"暫定Bedrock分析失敗: {e}")
+
+async def _send_final_bedrock_analysis(self, job: PocJob, final_text: str, speaker: str) -> None:
+    """最終確定判定用のBedrock分析"""
+    try:
+        segment = {
+            "index": 0,  # 最終判定なのでindexは重要でない
+            "speaker": speaker,
+            "text": final_text.strip(),
+            "context_before": "",
+            "context_after": "",
+        }
+        
+        classified = await asyncio.to_thread(
+            classify_transcript_segments,
+            [segment],
+            job.agenda_text
+        )
+        
+        if classified and len(classified) > 0:
+            result = classified[0]
+            category_ai = result.get("category", _guess_category(final_text))
+            alignment_ai = result.get("alignment", 0)
+            
+            result_final = {
+                "text": final_text.strip(),
+                "speaker": speaker,
+                "category": category_ai,
+                "alignment": alignment_ai,
+                "method": "bedrock_final",  # 最終AI分析
+                "is_final": True,  # 確定
+                "total_chars": len(final_text)
+            }
+            
+            # 最終結果をクライアントに通知
+            await job.queue.put({"type": "realtime_classification", "action": "final", "payload": result_final})
+            
+            self.logger.info(f"最終Bedrock分析完了: {speaker} - [{category_ai}] {alignment_ai}% ({len(final_text)}文字)")
+    
+    except Exception as e:
+        self.logger.exception(f"最終Bedrock分析失敗: {e}")
 
 #過去の会議記録の一覧を取得する機能
     def list_archived_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -345,6 +477,9 @@ async def classify_realtime(self, job_id: str, text: str, speaker: str, index: i
             success = True
         finally:
             await self._finalize_pending_results(job)
+            # 最後に残った蓄積テキストがあれば最終分析
+            if job.accumulated_text.strip() and job.current_speaker:
+                await self._send_final_bedrock_analysis(job, job.accumulated_text, job.current_speaker)
             if success:
                 job.status = "completed"
                 self._persist_transcripts(job)
@@ -478,57 +613,7 @@ async def classify_realtime(self, job_id: str, text: str, speaker: str, index: i
         cleaned = cleaned.strip("-_")
         return cleaned[:40]
 
-    async def _classify_with_bedrock(self, job: PocJob, text: str, speaker: str, index: int) -> None:
-        """Bedrockで高精度な分析を実行（バックグラウンド）"""
-        try:
-            # 文脈を取得（前後の発言）
-            context_before = ""
-            context_after = ""
-            for transcript in job.transcripts:
-                if transcript.get("index") == index - 1:
-                    context_before = transcript.get("text", "")
-                elif transcript.get("index") == index + 1:
-                    context_after = transcript.get("text", "")
-            
-            # Bedrockで分析
-            segment = {
-                "index": index,
-                "speaker": speaker,
-                "text": text,
-                "context_before": context_before,
-                "context_after": context_after,
-            }
-            
-            # classify_transcript_segmentsを使って分析
-            classified = await asyncio.to_thread(
-                classify_transcript_segments,
-                [segment],
-                job.agenda_text
-            )
-            
-            if classified and len(classified) > 0:
-                result = classified[0]
-                category_ai = result.get("category", _guess_category(text))
-                alignment_ai = result.get("alignment", 0)
-                
-                result_ai = {
-                    "index": index,
-                    "text": text,
-                    "speaker": speaker,
-                    "category": category_ai,
-                    "alignment": alignment_ai,
-                    "method": "bedrock",  # AI分析
-                    "is_final": True  # 確定
-                }
-                
-                # 更新をクライアントに通知
-                await job.queue.put({"type": "realtime_classification", "action": "update", "payload": result_ai})
-                
-                self.logger.info(f"Bedrock分析完了: {speaker} - {text} → [{category_ai}] {alignment_ai}%")
-        
-        except Exception as e:
-            self.logger.exception(f"Bedrock分析失敗: {e}")
-            # エラーが出てもキーワードベースの結果は残るので問題なし
+
 
     def _calculate_alignment(self, text: str, agenda_text: str) -> int:
         """発言とアジェンダの一致度を0-100で計算（キーワードベース）"""
