@@ -140,17 +140,17 @@ class SessionController:
                     is_partial = result.get("is_partial", False)
                     
                     # Use a stable result_id for the same utterance
-                    # For continuous speech, use the same result_id until final
-                    if not hasattr(session_data, 'current_result_id') or not is_partial:
-                        if not is_partial:
-                            # Final result - increment for next utterance
-                            session_data['current_result_id'] = f"session-{session_data['next_entry_index']}"
-                        else:
-                            # Partial result - use existing or create new
-                            if not hasattr(session_data, 'current_result_id'):
-                                session_data['current_result_id'] = f"session-{session_data['next_entry_index']}"
+                    # Create new result_id only when starting a new utterance
+                    if not hasattr(session_data, 'current_result_id') or session_data.get('last_was_final', True):
+                        # Starting new utterance
+                        session_data['current_result_id'] = f"session-{session_data['next_entry_index']}"
+                        session_data['last_was_final'] = False
                     
                     result_id = session_data['current_result_id']
+                    
+                    # Mark if this is a final result
+                    if not is_partial:
+                        session_data['last_was_final'] = True
                     
                     self.logger.info(f"Transcript result: is_partial={is_partial}, result_id={result_id}, text='{transcript[:50]}...'")
                     
@@ -471,10 +471,6 @@ class SessionController:
                 "is_partial": not is_final,
             }
             
-            # Only increment index for final results (new lines)
-            if is_final:
-                session_data["next_entry_index"] += 1
-            
             session_data["pending_results"][result_id] = entry
             
             # Send append message for new utterance
@@ -508,13 +504,12 @@ class SessionController:
         
         # Handle final result - move to transcripts and start classification
         if is_final:
+            # Increment index only when finalizing (creating new line)
+            session_data["next_entry_index"] += 1
+            
             await self._finalize_result_streaming(session_data, result_id, websocket)
             # Start classification for final results
             await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, entry["index"])
-            
-            # Reset current_result_id for next utterance
-            if hasattr(session_data, 'current_result_id') and session_data['current_result_id'] == result_id:
-                delattr(session_data, 'current_result_id')
 
     async def _finalize_result_streaming(self, session_data: dict, result_id: str, websocket: WebSocket) -> None:
         """Finalize a transcription result."""
