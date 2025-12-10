@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
 import { useMeetingSession } from '../hooks/useMeetingSession';
+import { useTranscripts } from '../hooks/useTranscripts';
 import type { Participant } from '../types';
 
 export function SessionPage() {
@@ -20,14 +21,33 @@ export function SessionPage() {
     toggleHand,
   } = useMeetingSession();
 
-  const [transcripts, setTranscripts] = useState<Array<{ index: number; speaker: string; raw_speaker?: string; result_id?: string; text: string; timestamp: string }>>([]);
   const [realtimeClassifications, setRealtimeClassifications] = useState<
     Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean }>
   >([]);
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
-  const wsRef = useRef<WebSocket | null>(null);
+
+  // useTranscriptsフックを使用してマイクアクセスと文字起こしを処理
+  const { transcripts } = useTranscripts(
+    session?.meetingId,
+    (payload) => {
+      // リアルタイム分析結果を受信
+      const { index, text, speaker, category, alignment, method, is_final } = payload;
+      
+      setRealtimeClassifications((prev) => {
+        const existingIndex = prev.findIndex((item) => item.index === index);
+        
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
+          return updated;
+        }
+        
+        return [...prev, { index, text, speaker, category, alignment, method, is_final }];
+      });
+    }
+  );
   
   // poc_satominと同じ警告機能
   const [showWarning, setShowWarning] = useState<boolean>(false);
@@ -38,104 +58,16 @@ export function SessionPage() {
   const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const alertIntervalRef = useRef<number | null>(null);
 
-  // WebSocket接続とデータ処理
-  useEffect(() => {
-    if (!session?.meetingId) {
-      setTranscripts([]);
-      setRealtimeClassifications([]);
-      return;
-    }
 
-    const wsUrl = buildWsUrl(session.meetingId);
-    console.log('[SessionPage] Connecting to WebSocket:', wsUrl);
-    
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('[SessionPage] WebSocket connected');
-    };
-
-    ws.onmessage = (event) => {
-      console.log('[SessionPage] Received message:', event.data);
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'transcript') {
-          const payload = data;
-          const action = 'append'; // sessionでは常にappend
-          
-          setTranscripts((prev) => {
-            const key = payload.result_id ?? `idx-${payload.index}`;
-            const exists = prev.some((item) => (item.result_id ?? `idx-${item.index}`) === key);
-            
-            if (!exists) {
-              return [...prev, {
-                index: payload.index || prev.length + 1,
-                speaker: payload.speaker || 'Unknown',
-                raw_speaker: payload.raw_speaker,
-                result_id: payload.result_id,
-                text: payload.transcript || payload.text || '',
-                timestamp: payload.timestamp || new Date().toISOString(),
-              }];
-            } else {
-              return prev.map((item) => {
-                const itemKey = item.result_id ?? `idx-${item.index}`;
-                if (itemKey !== key) return item;
-                return {
-                  ...item,
-                  text: payload.transcript || payload.text || item.text,
-                  speaker: payload.speaker || item.speaker,
-                  raw_speaker: payload.raw_speaker || item.raw_speaker,
-                };
-              });
-            }
-          });
-        } else if (data.type === 'realtime_classification') {
-          const { index, text, speaker, category, alignment, method, is_final } = data.payload;
-          const action = data.action || 'append';
-
-          console.log(`[SessionPage] リアルタイム分析: ${speaker} - ${text} → [${category}] ${alignment}% (${method}${is_final ? ' 確定' : ''})`);
-
-          setRealtimeClassifications((prev) => {
-            const existingIndex = prev.findIndex((item) => item.index === index);
-
-            if (existingIndex >= 0) {
-              const updated = [...prev];
-              updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
-              return updated;
-            }
-
-            return [...prev, { index, text, speaker, category, alignment, method, is_final }];
-          });
-        }
-      } catch (err) {
-        console.warn('[SessionPage] Failed to parse message:', err);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('[SessionPage] WebSocket error:', error);
-    };
-
-    ws.onclose = (event) => {
-      console.log('[SessionPage] WebSocket closed:', event.code, event.reason);
-    };
-
-    return () => {
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [session?.meetingId]);
 
   // 話者別の発話ボリュームを計算（判別中は除外）
   useEffect(() => {
     const lengthMap: Record<string, number> = {};
     transcripts.forEach((item) => {
-      if (item.speaker === '判別中...') return;
-      const length = item.text.length;
-      lengthMap[item.speaker] = (lengthMap[item.speaker] || 0) + length;
+      const speaker = item.speaker || 'Unknown';
+      if (speaker === '判別中...') return;
+      const length = item.transcript.length;
+      lengthMap[speaker] = (lengthMap[speaker] || 0) + length;
     });
     const total = Object.values(lengthMap).reduce((sum, v) => sum + v, 0);
     const stats = Object.entries(lengthMap)
@@ -152,18 +84,7 @@ export function SessionPage() {
     knownSpeakersRef.current = merged;
   }, [transcripts]);
 
-  const buildWsUrl = (meetingId: string) => {
-    const apiBase = (import.meta as any).env?.VITE_API_BASE ?? '/api';
-    if (apiBase.startsWith('http')) {
-      const url = new URL(apiBase);
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-      const basePath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
-      return `${url.origin}${basePath}/session/ws/${meetingId}`;
-    }
-    const origin = window.location.origin.replace(/^http/, 'ws');
-    const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
-    return `${origin}${base}/session/ws/${meetingId}`;
-  };
+
 
   const displaySpeaker = (speaker: string) => {
     const name = speakerNames[speaker];
@@ -443,14 +364,14 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts.map((item) => (
-                  <article key={item.timestamp + item.index} className="transcript-item">
+                {transcripts.map((item, index) => (
+                  <article key={item.timestamp + index} className="transcript-item">
                     <header>
-                      <strong>{displaySpeaker(item.speaker)}</strong>
-                      {item.raw_speaker && <span className="pill mono">{item.raw_speaker}</span>}
+                      <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
                       <span>{item.timestamp}</span>
+                      {item.isPartial && <span className="pill">部分</span>}
                     </header>
-                    <p>{item.text}</p>
+                    <p>{item.transcript}</p>
                   </article>
                 ))}
                 {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
