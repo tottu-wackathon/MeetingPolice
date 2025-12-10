@@ -444,8 +444,10 @@ export function PocSatominPage() {
       }, 60000);
     } else if (!shouldAlert && isAlertActive) {
       // アラートを停止（インターバルと音声合成の両方）
-      clearInterval(alertIntervalRef.current);
-      alertIntervalRef.current = null;
+      if (alertIntervalRef.current) {
+        clearInterval(alertIntervalRef.current);
+        alertIntervalRef.current = null;
+      }
       if (speechSynthRef.current) {
         window.speechSynthesis.cancel();
       }
@@ -512,7 +514,7 @@ export function PocSatominPage() {
   };
 
   return (
-    <Layout title="MeetingPolice PoC Satomin" subtitle="アジェンダと音声をアップロードし、リアルタイム文字起こしを確認できます。">
+    <Layout title="MeetingPolice" subtitle="アジェンダとリアルタイム音声をもとに、ミーティングの一致度を測ります。">
       {showWarning && (
         <div style={{
           position: 'fixed',
@@ -522,17 +524,17 @@ export function PocSatominPage() {
           margin: '0 auto',
           width: 'fit-content',
           zIndex: 9999,
-          padding: '20px 40px',
+          padding: '30px 50px',
           backgroundColor: '#ff9800',
           color: 'white',
-          borderRadius: '12px',
-          fontSize: '1.5em',
+          borderRadius: '16px',
+          fontSize: '2em',
           fontWeight: 'bold',
-          boxShadow: '0 8px 24px rgba(255, 152, 0, 0.4)',
+          boxShadow: '0 12px 32px rgba(255, 152, 0, 0.6)',
           animation: 'pulse 1.5s ease-in-out infinite',
-          border: '4px solid #fff'
+          border: '6px solid #fff'
         }}>
-          ⚠️ 一致度が落ちています！ ⚠️
+          ⚠️ 一致度が落ちています ⚠️
         </div>
       )}
       {showPoliceWarning && (
@@ -552,30 +554,9 @@ export function PocSatominPage() {
           fontWeight: 'bold',
           boxShadow: '0 12px 32px rgba(255, 23, 68, 0.6)',
           animation: 'pulse 1s ease-in-out infinite',
-          border: '6px solid #fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '20px',
-          whiteSpace: 'nowrap'
+          border: '6px solid #fff'
         }}>
-          <img
-            src="/police-icon.png.png"
-            alt="警察官"
-            style={{
-              width: '80px',
-              height: '80px'
-            }}
-          />
-          <span>🚨 警察出動！ 🚨</span>
-          <img
-            src="/police-icon.png.png"
-            alt="警察官"
-            style={{
-              width: '80px',
-              height: '80px'
-            }}
-          />
+          🚨 警察出動！ 🚨
         </div>
       )}
       <div className="poc-columns">

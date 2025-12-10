@@ -1,5 +1,4 @@
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&display=swap');
 
 /* ===== ベース設定 ===== */
 :root {
@@ -31,6 +30,8 @@ body::before {
   z-index: 0;
 }
 
+
+
 /* ===== レイアウト ===== */
 .mp-session-layout {
   max-width: 960px;
@@ -42,10 +43,9 @@ body::before {
 
 /* ===== ヘッダー ===== */
 .mp-session-layout header {
-  text-align: center;
   margin-bottom: 1.5rem;
   background: rgba(10, 14, 39, 0.8);
-  padding: 1.5rem;
+  padding: 4rem 2.5rem;
   border-radius: 8px;
   box-shadow:
     0 0 20px rgba(255, 0, 0, 0.3),
@@ -54,46 +54,59 @@ body::before {
   border: 4px solid #00ffff;
   position: relative;
   overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  grid-template-rows: auto auto;
+  gap: 1rem 3rem;
+  align-items: center;
 }
 
 .mp-session-layout header h1 {
   font-size: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
-  height: 120px !important;
-  width: 100% !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0.3rem !important;
+  height: auto !important;
+  display: block !important;
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .mp-session-layout header h1::before {
-  content: 'MEETING POLICE POC\ASATOMIN';
+  content: 'MEETING POLICE';
   font-family: 'Press Start 2P', 'Courier New', monospace !important;
-  font-size: 1.8rem;
+  font-size: 3rem;
   color: #00ffff;
   line-height: 1.4;
   letter-spacing: 0.05em !important;
   font-weight: normal !important;
   text-shadow:
-    2px 2px 0 #ff0000,
-    4px 4px 0 #0000ff,
-    0 0 20px #00ffff;
-  white-space: pre-line;
-  text-align: center;
+    3px 3px 0 #ff0000,
+    6px 6px 0 #0000ff,
+    0 0 30px #00ffff;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .mp-session-layout header h1::after {
   content: '';
-  width: 110px;
-  height: 110px;
-  background-image: url('/police-icon.png.png');
+  width: 150px;
+  height: 150px;
+  background-image: url('/police2.png');
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
   image-rendering: pixelated;
-  flex-shrink: 0;
+  position: absolute;
+  right: 2.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.mp-session-layout header p {
+  text-align: left !important;
+  margin: 0 !important;
+  grid-column: 1;
+  grid-row: 2;
 }
 
 /* ===== パネル ===== */
@@ -136,7 +149,7 @@ body::before {
 .panel-header h2 {
   color: #00ffff;
   text-shadow: 0 0 10px #00ffff;
-  font-family: 'DotGothic16', 'Courier New', monospace !important;
+  font-family: 'Courier New', monospace !important;
   font-size: 1.4em !important;
   font-weight: bold !important;
   text-transform: uppercase;
@@ -197,6 +210,7 @@ button:active {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -235,6 +249,7 @@ button:active {
   0% {
     transform: translate3d(0, 0, 0) rotate(0deg);
   }
+
   100% {
     transform: translate3d(calc(var(--drift, 0px) * 1.5), 120vh, 0) rotate(720deg);
     opacity: 0.25;
@@ -280,7 +295,7 @@ span {
 }
 
 .label {
-  font-family: 'DotGothic16', 'Courier New', monospace !important;
+  font-family: 'Courier New', monospace !important;
   font-size: 1em !important;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -665,22 +680,6 @@ audio {
 }
 
 /* ===== アニメーション ===== */
-@keyframes pulse {
-
-  0%,
-  100% {
-    transform: translateX(-50%) scale(1);
-    opacity: 1;
-  }
-
-  50% {
-    transform: translateX(-50%) scale(1.05);
-    opacity: 0.9;
-  }
-}
-
-/*
- 警告アニメーション */
 @keyframes pulse {
 
   0%,

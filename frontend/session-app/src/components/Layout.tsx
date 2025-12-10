@@ -14,7 +14,7 @@ export function Layout({
     <div className="mp-session-layout">
       <header>
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        <p style={{ textAlign: 'center', width: '100%', margin: '1rem 0 0 0' }}>{subtitle}</p>
       </header>
       <main>{children}</main>
     </div>
