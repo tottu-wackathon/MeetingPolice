@@ -38,6 +38,9 @@ export function SessionPage() {
     try {
       await joinMeeting(meetingCode);
       navigate(`/session/${meetingCode.trim()}`);
+    } catch (err) {
+      console.error('Failed to join meeting', err);
+      // useMeetingSession が error をセットするのでここではログのみにする
     } finally {
       setJoining(false);
     }
@@ -54,11 +57,8 @@ export function SessionPage() {
       } catch (err) {
         const message = err instanceof Error ? err.message : '参加に失敗しました';
         console.error('Failed to auto-join meeting', err);
-        // useMeetingSession 内のエラーステートも更新されるが、明示的にセットしておく
-        // eslint-disable-next-line no-console
         setMeetingCode(meetingId);
-        setJoining(false);
-        return;
+        setError(message);
       } finally {
         setJoining(false);
       }
