@@ -20,7 +20,7 @@ export function useMeetingSession() {
     setError(null);
     try {
       const data = await joinMeeting(meetingId.trim());
-      const videoEnabled = Boolean(data.videoEnabled && data.apiKey && data.sessionId && data.token);
+      const videoEnabled = Boolean(data.apiKey && data.sessionId && data.token);
       setSession({ ...data, videoEnabled });
       setStatus('connected');
       return { ...data, videoEnabled };
@@ -66,7 +66,7 @@ export function useMeetingSession() {
     setError(null);
     try {
       const data = await createMeetingSession(title, scheduledFor);
-      const videoEnabled = Boolean(data.videoEnabled && data.apiKey && data.sessionId && data.token);
+      const videoEnabled = Boolean(data.apiKey && data.sessionId && data.token);
       setSession({ ...data, videoEnabled });
       setStatus('connected');
     } catch (err) {

@@ -10,6 +10,7 @@ type Props = {
   videoOff?: boolean;
   enabled?: boolean;
   fallbackNotice?: string | null;
+  onParticipantsChange?: (participants: Array<{ id: string; name: string; role: 'host' | 'guest' }>) => void;
 };
 
 export function VonageStage({
@@ -20,6 +21,7 @@ export function VonageStage({
   videoOff = false,
   enabled = true,
   fallbackNotice,
+  onParticipantsChange,
 }: Props) {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export function VonageStage({
   const sessionRef = useRef<any>(null);
   const publisherContainerRef = useRef<HTMLDivElement | null>(null);
   const subscriberContainerRef = useRef<HTMLDivElement | null>(null);
+  const participantRef = useRef<Array<{ id: string; name: string; role: 'host' | 'guest' }>>([]);
 
   useEffect(() => {
     if (!enabled) {
@@ -55,7 +58,12 @@ export function VonageStage({
       const session = OTClient.initSession(apiKey, sessionId);
       sessionRef.current = session;
 
-      session.on('sessionConnected', () => setStatus('connected'));
+      session.on('sessionConnected', () => {
+        setStatus('connected');
+        const self = { id: 'local', name: 'You', role: 'host' as const };
+        participantRef.current = [self];
+        onParticipantsChange?.(participantRef.current);
+      });
       session.on('sessionDisconnected', () => setStatus('idle'));
 
       session.on('streamCreated', (event: any) => {
@@ -70,6 +78,23 @@ export function VonageStage({
             }
           },
         );
+        const streamId = event.stream?.streamId || `guest-${Date.now()}`;
+        const label =
+          event.stream?.connection?.data ||
+          event.stream?.name ||
+          `Guest ${participantRef.current.filter((p) => p.role === 'guest').length + 1}`;
+        const participant = { id: streamId, name: label, role: 'guest' as const };
+        const merged = [...participantRef.current.filter((p) => p.id !== streamId), participant];
+        participantRef.current = merged;
+        onParticipantsChange?.(merged);
+      });
+
+      session.on('streamDestroyed', (event: any) => {
+        const streamId = event.stream?.streamId;
+        if (!streamId) return;
+        const merged = participantRef.current.filter((p) => p.id !== streamId);
+        participantRef.current = merged;
+        onParticipantsChange?.(merged);
       });
 
       const publisherOptions = {
@@ -111,18 +136,22 @@ export function VonageStage({
     }
 
     return () => {
+      const activeSession = sessionRef.current;
+      const activePublisher = publisherRef.current;
       try {
-        session.disconnect();
+        activeSession?.disconnect();
       } catch {
         /* noop */
       }
       try {
-        publisher.destroy();
+        activePublisher?.destroy();
       } catch {
         /* noop */
       }
       sessionRef.current = null;
       publisherRef.current = null;
+      participantRef.current = [];
+      onParticipantsChange?.([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey, sessionId, token, enabled]);

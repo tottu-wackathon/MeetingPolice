@@ -8,6 +8,7 @@ import { useAnalyticsStream } from '../hooks/useAnalyticsStream';
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
 import { formatTime } from '../utils/time';
+import type { Participant } from '../types';
 
 export function SessionPage() {
   const {
@@ -31,6 +32,7 @@ export function SessionPage() {
   const [meetingCode, setMeetingCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
@@ -105,6 +107,7 @@ export function SessionPage() {
   const videoFallbackMessage = !videoEnabled
     ? 'ビデオ資格情報を取得できなかったため音声のみで参加しています。'
     : null;
+  const participantCount = participants.length;
 
   let content = joinSection;
 
@@ -131,6 +134,17 @@ export function SessionPage() {
               <p className="label">ステータス</p>
               <p className="status-text">{status === 'connected' ? 'ライブ中' : status}</p>
             </div>
+            <div>
+              <p className="label">参加者</p>
+              <p className="status-text">{participantCount} 人</p>
+            </div>
+          </div>
+          <div className="participant-chips">
+            {participants.map((p) => (
+              <span key={p.id} className="badge ghost">
+                👤 {p.name || 'Guest'}
+              </span>
+            ))}
           </div>
         </section>
 
@@ -142,6 +156,15 @@ export function SessionPage() {
           videoOff={isVideoOff}
           enabled={videoEnabled}
           fallbackNotice={videoFallbackMessage}
+          onParticipantsChange={(list) => {
+            const normalized = list.map((p) => ({
+              id: p.id,
+              name: p.name || 'Guest',
+              role: p.role,
+              isSpeaking: false,
+            }));
+            setParticipants(normalized.length > 0 ? normalized : [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
+          }}
         />
 
         <div className="panel-grid">

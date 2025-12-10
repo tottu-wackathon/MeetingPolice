@@ -3,6 +3,7 @@ export type Participant = {
   name: string;
   role: 'host' | 'guest';
   isSpeaking: boolean;
+  avatarUrl?: string;
 };
 
 export type MeetingSession = {
