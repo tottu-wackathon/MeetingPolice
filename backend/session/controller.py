@@ -10,8 +10,7 @@ from typing import Any
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from amazon_transcribe.auth import StaticCredentialResolver
-from amazon_transcribe.client import TranscribeStreamingClient
+
 
 
 
@@ -121,52 +120,63 @@ class SessionController:
                 del self.session_data[meeting_id]
 
     async def _start_realtime_transcription(self, session_data: dict, websocket: WebSocket) -> None:
-        """Start real-time transcription using amazon-transcribe streaming like poc_satomin."""
+        """Start real-time transcription using TranscribeStream service with improved logic."""
         meeting_id = session_data["meeting_id"]
         
         try:
-            # Get AWS credentials
-            session = get_session()
-            credentials = session.get_credentials()
-            if not credentials:
-                raise RuntimeError("Unable to resolve AWS credentials for Transcribe streaming")
+            # Use the existing TranscribeStream service with queue
+            import queue
+            import threading
             
-            frozen = credentials.get_frozen_credentials()
-            credential_resolver = StaticCredentialResolver(
-                frozen.access_key,
-                frozen.secret_key,
-                frozen.token,
-            )
+            audio_queue = queue.Queue()
             
-            client = TranscribeStreamingClient(
-                region=self.settings.aws_region,
-                credential_resolver=credential_resolver,
-            )
+            def on_transcript_result(result):
+                """Callback for transcription results with improved logic."""
+                try:
+                    transcript = result.get("transcript", "").strip()
+                    if not transcript:
+                        return
+                        
+                    is_partial = result.get("is_partial", False)
+                    
+                    # Generate a result_id based on content and partial status
+                    # Use a consistent ID for the same ongoing utterance
+                    base_id = f"session_{len(session_data.get('transcripts', []))}"
+                    if is_partial:
+                        result_id = f"{base_id}_partial"
+                    else:
+                        result_id = f"{base_id}_final"
+                    
+                    self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
+                    
+                    # Use the improved result handling
+                    asyncio.create_task(self._handle_result_streaming(
+                        session_data, result_id, "Speaker 1", "spk_1", transcript, not is_partial, websocket
+                    ))
+                        
+                except Exception as e:
+                    self.logger.error("Error processing transcript result: %s", e)
             
-            self.logger.info("Starting Transcribe stream for meeting_id=%s", meeting_id)
+            # Start transcription in background thread
+            def run_transcription():
+                try:
+                    self.transcribe.stream_audio(audio_queue, on_transcript_result)
+                except Exception as e:
+                    self.logger.error("Transcription thread error: %s", e)
             
-            stream = await client.start_stream_transcription(
-                language_code="ja-JP",
-                media_encoding="pcm",
-                media_sample_rate_hz=16000,
-                show_speaker_label=True,
-                enable_partial_results_stabilization=True,
-                partial_results_stability="medium",
-            )
+            transcription_thread = threading.Thread(target=run_transcription, daemon=True)
+            transcription_thread.start()
             
-            # Start audio processing and result handling concurrently
-            await asyncio.gather(
-                self._handle_websocket_audio_streaming(websocket, stream, session_data),
-                self._handle_transcribe_results_streaming(stream, session_data, websocket),
-            )
+            # Handle WebSocket audio data
+            await self._handle_websocket_audio_simple(websocket, audio_queue, session_data)
             
         except Exception as e:
             self.logger.error("Real-time transcription failed: %s", e)
             # Fallback to mock transcription
             await self._start_mock_transcription(session_data, websocket)
 
-    async def _handle_websocket_audio_streaming(self, websocket: WebSocket, stream, session_data: dict) -> None:
-        """Handle audio data from WebSocket and send to Transcribe stream."""
+    async def _handle_websocket_audio_simple(self, websocket: WebSocket, audio_queue, session_data: dict) -> None:
+        """Handle audio data from WebSocket and put into queue."""
         audio_count = 0
         
         try:
@@ -178,11 +188,12 @@ class SessionController:
                 
                 data = message.get("bytes")
                 if data and len(data) > 0:
-                    await stream.input_stream.send_audio_event(audio_chunk=data)
+                    # Put audio data into queue for transcription
+                    audio_queue.put(data)
                     audio_count += 1
                     
                     if audio_count % 100 == 0:
-                        self.logger.debug(f"Sent {audio_count} audio chunks to Transcribe")
+                        self.logger.debug(f"Queued {audio_count} audio chunks")
                         
                 elif message.get("text"):
                     if message["text"] == "close":
@@ -193,48 +204,9 @@ class SessionController:
         except Exception as e:
             self.logger.error(f"Error handling WebSocket audio: {e}")
         finally:
-            try:
-                await stream.input_stream.end_stream()
-                self.logger.info(f"Audio stream ended, processed {audio_count} chunks")
-            except Exception as e:
-                self.logger.error(f"Error ending audio stream: {e}")
-
-    async def _handle_transcribe_results_streaming(self, stream, session_data: dict, websocket: WebSocket) -> None:
-        """Handle transcription results from AWS Transcribe with poc_satomin-like logic."""
-        try:
-            async for event in stream.output_stream:
-                transcript = getattr(event, "transcript", None)
-                if not transcript:
-                    continue
-                    
-                for result in getattr(transcript, "results", []) or []:
-                    result_id = getattr(result, "result_id", None)
-                    if not result_id:
-                        continue
-                        
-                    is_partial = getattr(result, "is_partial", False)
-                    if not is_partial and result_id in session_data["processed_result_ids"]:
-                        continue
-                        
-                    alternatives = getattr(result, "alternatives", []) or []
-                    if not alternatives:
-                        continue
-                        
-                    alternative = alternatives[0]
-                    text = (getattr(alternative, "transcript", "") or "").strip()
-                    if not text:
-                        continue
-                    
-                    self.logger.info(f"Transcribe result: result_id={result_id}, is_partial={is_partial}, text='{text}'")
-                    
-                    speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
-                    await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket)
-                    
-                    if not is_partial:
-                        session_data["processed_result_ids"].add(result_id)
-                        
-        except Exception as e:
-            self.logger.error("Error handling transcribe results: %s", e)
+            # Signal end of audio stream
+            audio_queue.put(None)
+            self.logger.info(f"Audio handling ended, processed {audio_count} chunks")
 
 
 
