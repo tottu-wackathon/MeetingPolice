@@ -31,6 +31,34 @@ export function VonageStage({
   const subscriberContainerRef = useRef<HTMLDivElement | null>(null);
   const participantRef = useRef<Array<{ id: string; name: string; role: 'host' | 'guest' }>>([]);
 
+  const upsertParticipant = (participant: { id: string; name: string; role: 'host' | 'guest' }) => {
+    participantRef.current = [
+      ...participantRef.current.filter((p) => p.id !== participant.id),
+      participant,
+    ];
+    onParticipantsChange?.(participantRef.current);
+  };
+
+  const removeParticipant = (id: string) => {
+    participantRef.current = participantRef.current.filter((p) => p.id !== id);
+    onParticipantsChange?.(participantRef.current);
+  };
+
+  const connectionLabel = (connection: any, fallbackRole: 'host' | 'guest') => {
+    const data = connection?.data;
+    if (typeof data === 'string' && data.trim()) {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed?.name) return String(parsed.name);
+      } catch {
+        return data;
+      }
+    }
+    const existingGuests = participantRef.current.filter((p) => p.role === 'guest').length;
+    if (fallbackRole === 'host') return 'You';
+    return `Guest ${existingGuests + 1}`;
+  };
+
   useEffect(() => {
     if (!enabled) {
       setStatus('idle');
@@ -60,11 +88,26 @@ export function VonageStage({
 
       session.on('sessionConnected', () => {
         setStatus('connected');
-        const self = { id: 'local', name: 'You', role: 'host' as const };
-        participantRef.current = [self];
-        onParticipantsChange?.(participantRef.current);
       });
       session.on('sessionDisconnected', () => setStatus('idle'));
+
+      session.on('connectionCreated', (event: any) => {
+        const connection = event.connection;
+        const isLocal = connection?.connectionId === session.connection?.connectionId;
+        const label = connectionLabel(connection, isLocal ? 'host' : 'guest');
+        const participant = {
+          id: connection?.connectionId || `conn-${Date.now()}`,
+          name: label,
+          role: isLocal ? 'host' : 'guest',
+        } as const;
+        upsertParticipant(participant);
+      });
+
+      session.on('connectionDestroyed', (event: any) => {
+        const id = event.connection?.connectionId;
+        if (!id) return;
+        removeParticipant(id);
+      });
 
       session.on('streamCreated', (event: any) => {
         if (!subscriberContainerRef.current) return;
@@ -79,22 +122,15 @@ export function VonageStage({
           },
         );
         const streamId = event.stream?.streamId || `guest-${Date.now()}`;
-        const label =
-          event.stream?.connection?.data ||
-          event.stream?.name ||
-          `Guest ${participantRef.current.filter((p) => p.role === 'guest').length + 1}`;
-        const participant = { id: streamId, name: label, role: 'guest' as const };
-        const merged = [...participantRef.current.filter((p) => p.id !== streamId), participant];
-        participantRef.current = merged;
-        onParticipantsChange?.(merged);
+        const connection = event.stream?.connection;
+        const label = connectionLabel(connection, 'guest');
+        upsertParticipant({ id: streamId, name: label, role: 'guest' });
       });
 
       session.on('streamDestroyed', (event: any) => {
         const streamId = event.stream?.streamId;
         if (!streamId) return;
-        const merged = participantRef.current.filter((p) => p.id !== streamId);
-        participantRef.current = merged;
-        onParticipantsChange?.(merged);
+        removeParticipant(streamId);
       });
 
       const publisherOptions = {
