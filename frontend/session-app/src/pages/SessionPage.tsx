@@ -47,11 +47,18 @@ export function SessionPage() {
   useEffect(() => {
     const autoJoin = async () => {
       if (!meetingId || session || status === 'connecting') return;
+      setMeetingCode(meetingId);
       setJoining(true);
       try {
         await joinMeeting(meetingId);
-      } catch {
-        /* error handlingは既存の hook に委譲 */
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '参加に失敗しました';
+        console.error('Failed to auto-join meeting', err);
+        // useMeetingSession 内のエラーステートも更新されるが、明示的にセットしておく
+        // eslint-disable-next-line no-console
+        setMeetingCode(meetingId);
+        setJoining(false);
+        return;
       } finally {
         setJoining(false);
       }
