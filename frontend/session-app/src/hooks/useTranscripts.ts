@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveTranscript } from '../types';
 
 const buildWsUrl = (meetingId: string) => {
@@ -20,9 +20,11 @@ export function useTranscripts(
   isMuted?: boolean,
 ) {
   const [transcripts, setTranscripts] = useState<LiveTranscript[]>([]);
+  const isMutedRef = useRef(isMuted);
 
-  // ミュート状態の変更をログ出力
+  // ミュート状態をrefに同期
   useEffect(() => {
+    isMutedRef.current = isMuted;
     if (meetingId) {
       console.log('[useTranscripts] Mute status changed:', isMuted ? 'MUTED' : 'UNMUTED');
     }
@@ -135,7 +137,11 @@ export function useTranscripts(
           }
           
           // ミュート状態の場合は音声を送信しない
-          if (isMuted) {
+          if (isMutedRef.current) {
+            // ミュート中であることを定期的にログ出力
+            if (audioSentCount % 200 === 0) {
+              console.log('[useTranscripts] Audio blocked due to mute');
+            }
             return;
           }
           
@@ -155,7 +161,7 @@ export function useTranscripts(
             audioSentCount++;
             
             if (audioSentCount % 100 === 0) {
-              console.log(`[useTranscripts] Sent audio packet #${audioSentCount} (muted: ${isMuted})`);
+              console.log(`[useTranscripts] Sent audio packet #${audioSentCount} (muted: ${isMutedRef.current})`);
             }
           } catch (err) {
             console.error('[useTranscripts] Failed to send audio data:', err);
