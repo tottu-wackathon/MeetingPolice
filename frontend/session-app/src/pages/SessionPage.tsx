@@ -201,7 +201,7 @@ export function SessionPage() {
             </div>
             <div className="transcript-list">
               {transcripts.length === 0 && (
-                <p className="empty">発話すると表示されます。</p>
+                <p className="empty">発言を開始すると文字起こしが表示されます。</p>
               )}
               {transcripts.map((entry, index) => (
                 <div key={`${entry.timestamp}-${index}`} className="transcript-item">
