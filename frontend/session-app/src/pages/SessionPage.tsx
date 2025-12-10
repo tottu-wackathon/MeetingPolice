@@ -99,12 +99,10 @@ export function SessionPage() {
 
   const hasVideoCreds = Boolean(session?.apiKey && session?.sessionId && session?.token);
 
-  return (
-    <Layout
-      title="MeetingPolice Live Session"
-      subtitle="管理者が発行した Meeting ID を入力して Vonage でビデオ会議。音声はリアルタイム文字起こしされます。"
-    >
-      {session ? (
+  let content = joinSection;
+  try {
+    if (session) {
+      content = (
         <>
           <section className="panel meeting-overview">
             <div>
@@ -189,9 +187,25 @@ export function SessionPage() {
             onLeave={handleLeave}
           />
         </>
-      ) : (
-        joinSection
-      )}
+      );
+    }
+  } catch (err) {
+    console.error('Failed to render session UI', err);
+    content = (
+      <section className="panel hero-session">
+        <h2>表示に失敗しました</h2>
+        <p>再読み込みするか、もう一度接続し直してください。</p>
+        {joinSection}
+      </section>
+    );
+  }
+
+  return (
+    <Layout
+      title="MeetingPolice Live Session"
+      subtitle="管理者が発行した Meeting ID を入力して Vonage でビデオ会議。音声はリアルタイム文字起こしされます。"
+    >
+      {content}
     </Layout>
   );
 }
