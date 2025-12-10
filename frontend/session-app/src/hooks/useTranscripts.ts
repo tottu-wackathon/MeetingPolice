@@ -73,7 +73,12 @@ export function useTranscripts(
               const payload = data.payload;
               const action = data.action || 'append';
               
-              console.log('[useTranscripts] Transcript update:', { action, payload });
+              console.log('[useTranscripts] Transcript update:', { 
+                action, 
+                payload, 
+                key: payload.result_id ?? `idx-${payload.index}`,
+                text: payload.text 
+              });
               
               setTranscripts((prev) => {
                 const key = payload.result_id ?? `idx-${payload.index}`;
@@ -117,7 +122,7 @@ export function useTranscripts(
                     ...(payload as any),
                   };
                   
-                  return [newEntry, ...prev].slice(0, 50);
+                  return [...prev, newEntry].slice(-50);
                 }
                 
                 if (action === 'update' && exists) {

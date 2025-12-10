@@ -334,6 +334,7 @@ class SessionController:
             session_data["pending_results"][result_id] = entry
             
             # Send append message
+            self.logger.info(f"New transcript: '{text}' (result_id: {result_id}, index: {entry['index']})")
             await websocket.send_json({
                 "type": "transcript",
                 "action": "append",
@@ -356,6 +357,7 @@ class SessionController:
             
             # Check if text changed
             if entry["text"] != text:
+                self.logger.info(f"Text update: '{entry['text']}' -> '{text}' (result_id: {result_id})")
                 entry["text"] = text
                 
                 # Send update for text change

@@ -361,7 +361,7 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts.map((item, index) => {
+                {transcripts.slice().reverse().map((item, index) => {
                   const itemData = item as any;
                   const key = itemData.result_id ?? `idx-${itemData.index ?? index}`;
                   
