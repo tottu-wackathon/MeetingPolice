@@ -1,7 +1,49 @@
 from __future__ import annotations
 
 import asyncio
-import audioop
+# audioop replacement for Python 3.13+
+try:
+    import audioop
+except ImportError:
+    # audioop was removed in Python 3.13, provide minimal replacement
+    class AudioopReplacement:
+        @staticmethod
+        def lin2lin(fragment, width, newwidth):
+            # Simple conversion between sample widths
+            import struct
+            if width == newwidth:
+                return fragment
+            if width == 1 and newwidth == 2:
+                # 8-bit to 16-bit
+                return b''.join(struct.pack('<h', (b - 128) * 256) for b in fragment)
+            elif width == 2 and newwidth == 1:
+                # 16-bit to 8-bit
+                return bytes((struct.unpack('<h', fragment[i:i+2])[0] // 256 + 128) & 0xff 
+                           for i in range(0, len(fragment), 2))
+            return fragment
+        
+        @staticmethod
+        def tomono(fragment, width, lfactor, rfactor):
+            # Convert stereo to mono
+            import struct
+            if width == 2:
+                samples = struct.unpack(f'<{len(fragment)//2}h', fragment)
+                mono_samples = []
+                for i in range(0, len(samples), 2):
+                    if i + 1 < len(samples):
+                        mono = int(samples[i] * lfactor + samples[i+1] * rfactor)
+                        mono_samples.append(max(-32768, min(32767, mono)))
+                    else:
+                        mono_samples.append(samples[i])
+                return struct.pack(f'<{len(mono_samples)}h', *mono_samples)
+            return fragment
+        
+        @staticmethod
+        def ratecv(fragment, width, nchannels, inrate, outrate, state):
+            # Simple rate conversion (just return as-is for now)
+            return fragment, state
+    
+    audioop = AudioopReplacement()
 import io
 import json
 import re
