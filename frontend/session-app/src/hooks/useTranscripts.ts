@@ -73,18 +73,15 @@ export function useTranscripts(
               const payload = data.payload;
               const action = data.action || 'append';
               
-              const key = payload.result_id ?? `idx-${payload.index}`;
               console.log('[useTranscripts] Transcript update:', { 
                 action, 
                 payload, 
-                key: key,
-                text: payload.text,
-                result_id: payload.result_id,
-                index: payload.index
+                key: payload.result_id ?? `idx-${payload.index}`,
+                text: payload.text 
               });
               
               setTranscripts((prev) => {
-
+                const key = payload.result_id ?? `idx-${payload.index}`;
                 
                 const updateExisting = (items: LiveTranscript[]) =>
                   items.map((item) => {
