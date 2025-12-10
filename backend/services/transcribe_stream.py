@@ -94,75 +94,142 @@ class TranscribeStream:
         language_code: str = "ja-JP",
     ) -> None:
         """Use amazon-transcribe streaming client."""
-        from amazon_transcribe.client import TranscribeStreamingClient
-        from amazon_transcribe.handlers import TranscriptResultStreamHandler
-        from amazon_transcribe.model import TranscriptEvent
         import asyncio
         import logging
+        import threading
         
         logger = logging.getLogger(__name__)
         logger.info("Starting amazon-transcribe streaming...")
         
-        class MyEventHandler(TranscriptResultStreamHandler):
-            def __init__(self, transcript_callback):
-                super().__init__()
-                self.callback = transcript_callback
-                
-            async def handle_transcript_event(self, transcript_event: TranscriptEvent):
-                results = transcript_event.transcript.results
-                for result in results:
-                    if result.alternatives:
-                        transcript = result.alternatives[0].transcript
-                        if transcript.strip():
-                            self.callback({
-                                "transcript": transcript,
-                                "is_partial": result.is_partial,
-                                "start_time": getattr(result, 'start_time', None),
-                                "end_time": getattr(result, 'end_time', None),
-                            })
+        def run_async_transcribe():
+            try:
+                asyncio.run(self._async_transcribe_stream(audio_queue, on_transcript, language_code))
+            except Exception as e:
+                logger.error("Async transcribe failed: %s", e)
+                raise
         
-        async def stream_audio():
-            # Get AWS credentials
-            session = get_session()
-            credentials = session.get_credentials()
-            if not credentials:
-                raise RuntimeError("AWS credentials not found")
-                
-            frozen = credentials.get_frozen_credentials()
+        # Run in a separate thread to avoid blocking
+        thread = threading.Thread(target=run_async_transcribe, daemon=True)
+        thread.start()
+        thread.join()  # Wait for completion
+    
+    async def _async_transcribe_stream(
+        self,
+        audio_queue: queue.Queue[bytes | None],
+        on_transcript: Callable[[dict[str, Any]], None],
+        language_code: str = "ja-JP",
+    ):
+        """Async transcribe streaming implementation."""
+        from amazon_transcribe.client import TranscribeStreamingClient
+        from amazon_transcribe.handlers import TranscriptResultStreamHandler
+        from amazon_transcribe.model import TranscriptEvent
+        from amazon_transcribe.auth import StaticCredentialResolver
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get AWS credentials
+        session = get_session()
+        credentials = session.get_credentials()
+        if not credentials:
+            raise RuntimeError("AWS credentials not found")
             
-            client = TranscribeStreamingClient(region=get_settings().aws_region)
-            
-            # Create audio stream generator
-            async def audio_generator():
-                while True:
-                    chunk = audio_queue.get()
+        frozen = credentials.get_frozen_credentials()
+        
+        # Create credential resolver
+        credential_resolver = StaticCredentialResolver(
+            access_key_id=frozen.access_key,
+            secret_access_key=frozen.secret_key,
+            session_token=frozen.token,
+        )
+        
+        # Create client
+        client = TranscribeStreamingClient(
+            region=get_settings().aws_region,
+            credential_resolver=credential_resolver,
+        )
+        
+        # Create audio stream generator
+        async def audio_generator():
+            import asyncio
+            while True:
+                try:
+                    # Use asyncio to avoid blocking
+                    chunk = await asyncio.get_event_loop().run_in_executor(
+                        None, audio_queue.get, True, 1.0  # 1 second timeout
+                    )
                     if chunk is None:
+                        logger.info("Audio stream ended")
                         break
                     yield chunk
-            
-            # Start streaming
-            stream = await client.start_stream_transcription(
-                language_code=language_code,
-                media_sample_rate_hz=16000,
-                media_encoding="pcm",
-            )
-            
-            handler = MyEventHandler(on_transcript)
-            
-            # Process audio and results concurrently
-            await asyncio.gather(
-                self._write_chunks(stream, audio_generator()),
-                handler.handle_events(stream.output_stream)
-            )
+                except:
+                    # Timeout or queue empty, continue
+                    await asyncio.sleep(0.1)
         
-        # Run the async streaming
-        asyncio.run(stream_audio())
+        # Start streaming
+        logger.info("Starting transcribe stream...")
+        stream = await client.start_stream_transcription(
+            language_code=language_code,
+            media_sample_rate_hz=16000,
+            media_encoding="pcm",
+        )
+        
+        # Create event handler
+        class MyEventHandler(TranscriptResultStreamHandler):
+            def __init__(self, output_stream, callback):
+                super().__init__(output_stream)
+                self.callback = callback
+                
+            async def handle_transcript_event(self, transcript_event: TranscriptEvent):
+                try:
+                    results = transcript_event.transcript.results
+                    for result in results:
+                        if result.alternatives:
+                            transcript = result.alternatives[0].transcript
+                            if transcript and transcript.strip():
+                                logger.info("Transcribe result: %s (partial: %s)", transcript, result.is_partial)
+                                self.callback({
+                                    "transcript": transcript.strip(),
+                                    "is_partial": result.is_partial,
+                                    "start_time": getattr(result, 'start_time', None),
+                                    "end_time": getattr(result, 'end_time', None),
+                                })
+                except Exception as e:
+                    logger.error("Error handling transcript event: %s", e)
+        
+        handler = MyEventHandler(stream.output_stream, on_transcript)
+        
+        # Process audio and results concurrently
+        try:
+            await asyncio.gather(
+                self._write_audio_chunks(stream, audio_generator()),
+                handler.handle_events()
+            )
+        except Exception as e:
+            logger.error("Transcribe streaming error: %s", e)
+            raise
+        finally:
+            logger.info("Transcribe streaming completed")
     
-    async def _write_chunks(self, stream, audio_generator):
+    async def _write_audio_chunks(self, stream, audio_generator):
         """Write audio chunks to the stream."""
-        async for chunk in audio_generator:
-            await stream.input_stream.send_audio_event(audio_chunk=chunk)
-        await stream.input_stream.end_stream()
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            chunk_count = 0
+            async for chunk in audio_generator:
+                await stream.input_stream.send_audio_event(audio_chunk=chunk)
+                chunk_count += 1
+                if chunk_count % 50 == 0:
+                    logger.debug("Sent %d audio chunks to Transcribe", chunk_count)
+            
+            logger.info("Finished sending audio chunks (%d total)", chunk_count)
+            await stream.input_stream.end_stream()
+        except Exception as e:
+            logger.error("Error writing audio chunks: %s", e)
+            raise
+
 
     def _stream_with_boto3(
         self,
@@ -175,38 +242,57 @@ class TranscribeStream:
         logger = logging.getLogger(__name__)
         logger.info("Using boto3 transcribe API...")
         
-        if not hasattr(self.client, "start_stream_transcription"):
-            raise RuntimeError("transcribe streaming not supported in current boto3/botocore")
+        # Check if streaming is supported
+        try:
+            # Test if the method exists and is callable
+            if not hasattr(self.client, "start_stream_transcription"):
+                raise RuntimeError("start_stream_transcription method not available")
             
-        response = self.client.start_stream_transcription(
-            LanguageCode=language_code,
-            MediaEncoding="pcm",
-            MediaSampleRateHertz=16000,
-            AudioStream=_QueueAudioStream(audio_queue),
-        )
-        stream = response.get("TranscriptResultStream")
-        if not stream:
-            raise RuntimeError("no transcript stream")
+            # Try to call the method with a test to see if it's properly supported
+            logger.info("Testing boto3 transcribe streaming capability...")
+            
+            response = self.client.start_stream_transcription(
+                LanguageCode=language_code,
+                MediaEncoding="pcm",
+                MediaSampleRateHertz=16000,
+                AudioStream=_QueueAudioStream(audio_queue),
+            )
+            
+            stream = response.get("TranscriptResultStream")
+            if not stream:
+                raise RuntimeError("no transcript stream returned")
 
-        for event in stream:
-            transcript_event = event.get("TranscriptEvent")
-            if not transcript_event:
-                continue
-            results = transcript_event.get("Transcript", {}).get("Results", [])
-            for result in results:
-                alternatives = result.get("Alternatives") or []
-                if not alternatives:
+            logger.info("boto3 transcribe streaming started successfully")
+            
+            for event in stream:
+                transcript_event = event.get("TranscriptEvent")
+                if not transcript_event:
                     continue
-                text = (alternatives[0].get("Transcript") or "").strip()
-                if not text:
-                    continue
-                payload = {
-                    "transcript": text,
-                    "is_partial": result.get("IsPartial", False),
-                    "start_time": result.get("StartTime"),
-                    "end_time": result.get("EndTime"),
-                }
-                on_transcript(payload)
+                results = transcript_event.get("Transcript", {}).get("Results", [])
+                for result in results:
+                    alternatives = result.get("Alternatives") or []
+                    if not alternatives:
+                        continue
+                    text = (alternatives[0].get("Transcript") or "").strip()
+                    if not text:
+                        continue
+                    
+                    logger.info("boto3 transcribe result: %s", text)
+                    payload = {
+                        "transcript": text,
+                        "is_partial": result.get("IsPartial", False),
+                        "start_time": result.get("StartTime"),
+                        "end_time": result.get("EndTime"),
+                    }
+                    on_transcript(payload)
+                    
+        except Exception as e:
+            logger.error("boto3 transcribe streaming failed: %s", e)
+            # Re-raise with more specific error message
+            if "not supported" in str(e).lower() or "not available" in str(e).lower():
+                raise RuntimeError(f"boto3 transcribe streaming not supported: {e}")
+            else:
+                raise RuntimeError(f"boto3 transcribe error: {e}")
 
     def _silence_chunks(self, seconds: int = 2, chunk_size: int = 3200) -> Iterator[bytes]:
         total_chunks = max(1, (seconds * 16000) // chunk_size)
