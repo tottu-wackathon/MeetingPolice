@@ -412,17 +412,6 @@ class SessionController:
             session_data["next_speaker_index"] += 1
         
         return session_data["speaker_labels"][raw_label]
-        
-        if is_final:
-            # Finalize result and start classification
-            await self._finalize_result(session_data, result_id, websocket)
-            await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, entry["index"])
-
-    async def _finalize_result(self, session_data: dict, result_id: str, websocket: WebSocket) -> None:
-        """Finalize a transcription result."""
-        entry = session_data["pending_results"].pop(result_id, None)
-        if entry:
-            session_data["transcripts"].append(entry)
 
     async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
         """Perform real-time classification like poc_satomin."""
