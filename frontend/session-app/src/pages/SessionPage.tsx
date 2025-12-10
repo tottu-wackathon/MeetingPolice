@@ -1,4 +1,5 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ControlBar } from '../components/ControlBar';
 import { Layout } from '../components/Layout';
 import { MetricsPanel } from '../components/MetricsPanel';
@@ -24,6 +25,8 @@ export function SessionPage() {
   } = useMeetingSession();
   const { samples } = useAnalyticsStream(session?.meetingId);
   const { transcripts } = useTranscripts(session?.meetingId);
+  const { meetingId } = useParams();
+  const navigate = useNavigate();
 
   const [meetingCode, setMeetingCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -34,10 +37,27 @@ export function SessionPage() {
     setJoining(true);
     try {
       await joinMeeting(meetingCode);
+      navigate(`/session/${meetingCode.trim()}`);
     } finally {
       setJoining(false);
     }
   };
+
+  // URL に meetingId がある場合は自動で join する
+  useEffect(() => {
+    const autoJoin = async () => {
+      if (!meetingId || session || status === 'connecting') return;
+      setJoining(true);
+      try {
+        await joinMeeting(meetingId);
+      } catch {
+        /* error handlingは既存の hook に委譲 */
+      } finally {
+        setJoining(false);
+      }
+    };
+    void autoJoin();
+  }, [meetingId, joinMeeting, session, status]);
 
   const joinSection = (
     <section className="panel join-card">
@@ -64,6 +84,11 @@ export function SessionPage() {
       )}
     </section>
   );
+
+  const handleLeave = () => {
+    leaveMeeting();
+    navigate('/');
+  };
 
   return (
     <Layout
@@ -136,7 +161,7 @@ export function SessionPage() {
             handRaised={handRaised}
             onToggleMute={toggleMute}
             onToggleVideo={toggleVideo}
-            onLeave={leaveMeeting}
+            onLeave={handleLeave}
           />
         </>
       ) : (
