@@ -120,243 +120,71 @@ class SessionController:
                 del self.session_data[meeting_id]
 
     async def _start_realtime_transcription(self, session_data: dict, websocket: WebSocket) -> None:
-        """Start real-time transcription with audio buffering like poc_satomin."""
+        """Start real-time transcription using AWS Transcribe streaming directly."""
         meeting_id = session_data["meeting_id"]
         
         try:
-            # Use buffered audio processing approach
-            await self._start_buffered_transcription(session_data, websocket)
+            # Try AWS Transcribe streaming first
+            await self._start_aws_transcribe_streaming(session_data, websocket)
             
         except Exception as e:
-            self.logger.error("Buffered transcription failed: %s", e)
-            # Final fallback to mock transcription
-            await self._start_mock_transcription(session_data, websocket)
+            self.logger.error("AWS Transcribe streaming failed: %s", e)
+            # Fallback to TranscribeStream service
+            try:
+                await self._start_transcribe_service_fallback(session_data, websocket)
+            except Exception as e2:
+                self.logger.error("TranscribeStream service also failed: %s", e2)
+                # Final fallback to mock transcription
+                await self._start_mock_transcription(session_data, websocket)
 
-
-
-    async def _start_buffered_transcription(self, session_data: dict, websocket: WebSocket) -> None:
-        """Start transcription with audio buffering and voice activity detection."""
+    async def _start_transcribe_service_fallback(self, session_data: dict, websocket: WebSocket) -> None:
+        """Fallback to TranscribeStream service with proper result handling."""
         meeting_id = session_data["meeting_id"]
-        self.logger.info("Starting buffered transcription for meeting_id=%s", meeting_id)
         
-        # Audio buffering parameters
-        SAMPLE_RATE = 16000
-        CHUNK_SIZE = 1024  # 64ms chunks at 16kHz
-        SILENCE_THRESHOLD = 0.01  # Silence detection threshold
-        MIN_SPEECH_DURATION = 1.0  # Minimum 1 second of speech
-        MAX_SILENCE_DURATION = 2.0  # Maximum 2 seconds of silence before processing
-        BUFFER_TIMEOUT = 10.0  # Maximum buffer time before forced processing
+        import queue
+        import threading
         
-        audio_buffer = []
-        last_speech_time = None
-        last_activity_time = None
-        buffer_start_time = None
+        audio_queue = queue.Queue()
         
-        try:
-            while True:
-                message = await websocket.receive()
+        def on_transcript_result(result):
+            """Handle transcript results from TranscribeStream service."""
+            try:
+                transcript = result.get("transcript", "").strip()
+                if not transcript:
+                    return
+                    
+                is_partial = result.get("is_partial", False)
                 
-                if message.get("type") == "websocket.disconnect":
-                    break
-                
-                data = message.get("bytes")
-                if not data or len(data) == 0:
-                    continue
-                
-                # Convert bytes to audio samples for analysis
-                import struct
+                # Generate a simple result_id for TranscribeStream service
+                # Use timestamp-based ID to ensure uniqueness
                 import time
+                if not hasattr(session_data, 'current_utterance_start') or not is_partial:
+                    session_data['current_utterance_start'] = int(time.time() * 1000)
                 
-                current_time = time.time()
+                result_id = f"ts-{session_data['current_utterance_start']}"
                 
-                # Convert to 16-bit samples
-                if len(data) % 2 != 0:
-                    data = data[:-1]  # Remove odd byte
+                self.logger.info(f"TranscribeStream result: is_partial={is_partial}, result_id={result_id}, text='{transcript[:50]}...'")
                 
-                samples = struct.unpack(f'<{len(data)//2}h', data)
-                
-                # Calculate RMS (Root Mean Square) for voice activity detection
-                if samples:
-                    rms = (sum(s*s for s in samples) / len(samples)) ** 0.5
-                    normalized_rms = rms / 32768.0  # Normalize to 0-1
+                # Handle result with proper streaming logic
+                asyncio.create_task(self._handle_result_streaming(
+                    session_data, result_id, "Speaker 1", "spk_1", transcript, not is_partial, websocket
+                ))
                     
-                    # Voice activity detection
-                    is_speech = normalized_rms > SILENCE_THRESHOLD
-                    
-                    if is_speech:
-                        last_speech_time = current_time
-                        if buffer_start_time is None:
-                            buffer_start_time = current_time
-                            self.logger.info(f"🎤 Speech detected, starting buffer")
-                    
-                    last_activity_time = current_time
-                    
-                    # Add to buffer if we're in a speech segment
-                    if buffer_start_time is not None:
-                        audio_buffer.append(data)
-                        
-                        buffer_duration = current_time - buffer_start_time
-                        silence_duration = current_time - (last_speech_time or current_time)
-                        
-                        # Check if we should process the buffer
-                        should_process = False
-                        reason = ""
-                        
-                        if buffer_duration >= BUFFER_TIMEOUT:
-                            should_process = True
-                            reason = f"timeout ({buffer_duration:.1f}s)"
-                        elif silence_duration >= MAX_SILENCE_DURATION and buffer_duration >= MIN_SPEECH_DURATION:
-                            should_process = True
-                            reason = f"silence ({silence_duration:.1f}s after {buffer_duration:.1f}s speech)"
-                        
-                        if should_process and audio_buffer:
-                            # Process accumulated audio
-                            combined_audio = b''.join(audio_buffer)
-                            self.logger.info(f"🔄 Processing audio buffer: {len(combined_audio)} bytes, reason: {reason}")
-                            
-                            # Process with AWS Transcribe like poc_satomin
-                            asyncio.create_task(self._process_audio_buffer(
-                                session_data, combined_audio, websocket
-                            ))
-                            
-                            # Reset buffer
-                            audio_buffer = []
-                            buffer_start_time = None
-                            last_speech_time = None
-                
-                elif message.get("text"):
-                    if message["text"] == "close":
-                        break
-                        
-        except WebSocketDisconnect:
-            self.logger.info("WebSocket disconnected during buffered transcription")
-        except Exception as e:
-            self.logger.error(f"Error in buffered transcription: {e}")
-        finally:
-            # Process any remaining audio in buffer
-            if audio_buffer:
-                combined_audio = b''.join(audio_buffer)
-                self.logger.info(f"🔄 Processing final audio buffer: {len(combined_audio)} bytes")
-                await self._process_audio_buffer(session_data, combined_audio, websocket)
-
-    async def _process_audio_buffer(self, session_data: dict, audio_bytes: bytes, websocket: WebSocket) -> None:
-        """Process buffered audio using AWS Transcribe like poc_satomin."""
-        try:
-            # Prepare PCM audio like poc_satomin
-            pcm_bytes, sample_rate = self._prepare_pcm_from_raw(audio_bytes)
-            
-            # Process with AWS Transcribe
-            await self._run_transcribe_on_buffer(session_data, pcm_bytes, sample_rate, websocket)
-            
-        except Exception as e:
-            self.logger.error(f"Error processing audio buffer: {e}")
-
-    def _prepare_pcm_from_raw(self, audio_bytes: bytes) -> tuple[bytes, int]:
-        """Prepare PCM audio from raw WebSocket audio data."""
-        # Assume input is already 16-bit PCM at 16kHz mono
-        # WebSocket audio should already be in the correct format
-        return audio_bytes, 16000
-
-    async def _run_transcribe_on_buffer(self, session_data: dict, pcm_bytes: bytes, sample_rate: int, websocket: WebSocket) -> None:
-        """Run AWS Transcribe on buffered audio like poc_satomin."""
-        try:
-            from amazon_transcribe.auth import StaticCredentialResolver
-            from amazon_transcribe.client import TranscribeStreamingClient
-            
-            # Get AWS credentials
-            session = get_session()
-            credentials = session.get_credentials()
-            if not credentials:
-                raise RuntimeError("AWS credentials not found")
-                
-            frozen = credentials.get_frozen_credentials()
-            
-            # Create credential resolver
-            credential_resolver = StaticCredentialResolver(
-                access_key_id=frozen.access_key,
-                secret_access_key=frozen.secret_key,
-                session_token=frozen.token,
-            )
-            
-            # Create client
-            client = TranscribeStreamingClient(
-                region=self.settings.aws_region,
-                credential_resolver=credential_resolver,
-            )
-            
-            # Start streaming like poc_satomin
-            chunk_ms = 50
-            chunk_bytes = max(1, int(sample_rate * 2 * chunk_ms / 1000))
-            
-            self.logger.info(f"Starting Transcribe stream: {len(pcm_bytes)} bytes, sample_rate={sample_rate}")
-            
-            stream = await client.start_stream_transcription(
-                language_code="ja-JP",
-                media_encoding="pcm",
-                media_sample_rate_hz=sample_rate,
-                show_speaker_label=True,
-                enable_partial_results_stabilization=True,
-                partial_results_stability="medium",
-            )
-            
-            # Send audio and process results like poc_satomin
-            async def send_audio():
-                chunk_delay = chunk_ms / 1000
-                for chunk in self._chunk_pcm(pcm_bytes, chunk_bytes):
-                    await stream.input_stream.send_audio_event(audio_chunk=chunk)
-                    await asyncio.sleep(chunk_delay)
-                await stream.input_stream.end_stream()
-            
-            async def consume_results():
-                async for event in stream.output_stream:
-                    transcript = getattr(event, "transcript", None)
-                    if not transcript:
-                        continue
-                        
-                    for result in getattr(transcript, "results", []) or []:
-                        result_id = getattr(result, "result_id", None)
-                        if not result_id:
-                            continue
-                            
-                        is_partial = getattr(result, "is_partial", False)
-                        if not is_partial and result_id in session_data["processed_result_ids"]:
-                            continue
-                            
-                        alternatives = getattr(result, "alternatives", []) or []
-                        if not alternatives:
-                            continue
-                            
-                        alternative = alternatives[0]
-                        text = (getattr(alternative, "transcript", "") or "").strip()
-                        if not text:
-                            continue
-                            
-                        speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
-                        
-                        self.logger.info(f"Buffered Transcribe result: result_id={result_id}, is_partial={is_partial}, text='{text}'")
-                        
-                        # Handle result with proper streaming logic
-                        await self._handle_result_streaming(
-                            session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket
-                        )
-                        
-                        if not is_partial:
-                            session_data["processed_result_ids"].add(result_id)
-            
-            # Run both tasks concurrently
-            await asyncio.gather(send_audio(), consume_results())
-            
-        except ImportError:
-            self.logger.error("amazon-transcribe package not available")
-            raise
-        except Exception as e:
-            self.logger.error(f"AWS Transcribe on buffer failed: {e}")
-            raise
-
-    def _chunk_pcm(self, pcm_bytes: bytes, chunk_size: int):
-        """Chunk PCM data like poc_satomin."""
-        for idx in range(0, len(pcm_bytes), chunk_size):
-            yield pcm_bytes[idx : idx + chunk_size]
+            except Exception as e:
+                self.logger.error("Error processing TranscribeStream result: %s", e)
+        
+        # Start transcription in background thread
+        def run_transcription():
+            try:
+                self.transcribe.stream_audio(audio_queue, on_transcript_result)
+            except Exception as e:
+                self.logger.error("TranscribeStream thread error: %s", e)
+        
+        transcription_thread = threading.Thread(target=run_transcription, daemon=True)
+        transcription_thread.start()
+        
+        # Handle WebSocket audio data
+        await self._handle_websocket_audio_simple(websocket, audio_queue, session_data)
 
     async def _handle_websocket_audio_simple(self, websocket: WebSocket, audio_queue, session_data: dict) -> None:
         """Handle audio data from WebSocket and put into queue."""
@@ -437,7 +265,162 @@ class SessionController:
         except WebSocketDisconnect:
             pass
 
+    async def _start_aws_transcribe_streaming(self, session_data: dict, websocket: WebSocket) -> None:
+        """Start AWS Transcribe streaming with proper result handling."""
+        meeting_id = session_data["meeting_id"]
+        self.logger.info("Starting AWS Transcribe streaming for meeting_id=%s", meeting_id)
+        
+        try:
+            # Use the same approach as poc_satomin
+            import queue
+            import threading
+            from amazon_transcribe.auth import StaticCredentialResolver
+            from amazon_transcribe.client import TranscribeStreamingClient
+            
+            audio_queue = queue.Queue()
+            
+            # Start AWS Transcribe streaming in background
+            def run_aws_transcription():
+                try:
+                    self._run_aws_transcribe_stream(session_data, audio_queue, websocket)
+                except Exception as e:
+                    self.logger.error("AWS Transcribe stream error: %s", e)
+            
+            transcription_thread = threading.Thread(target=run_aws_transcription, daemon=True)
+            transcription_thread.start()
+            
+            # Handle WebSocket audio data
+            await self._handle_websocket_audio_simple(websocket, audio_queue, session_data)
+            
+        except ImportError:
+            self.logger.error("amazon-transcribe package not available")
+            raise
+        except Exception as e:
+            self.logger.error("AWS Transcribe streaming setup failed: %s", e)
+            raise
 
+    def _run_aws_transcribe_stream(self, session_data: dict, audio_queue: queue.Queue, websocket: WebSocket) -> None:
+        """Run AWS Transcribe streaming synchronously."""
+        import asyncio
+        
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            loop.run_until_complete(self._async_aws_transcribe_stream(session_data, audio_queue, websocket))
+        finally:
+            loop.close()
+
+    async def _async_aws_transcribe_stream(self, session_data: dict, audio_queue: queue.Queue, websocket: WebSocket) -> None:
+        """Async AWS Transcribe streaming implementation."""
+        from amazon_transcribe.auth import StaticCredentialResolver
+        from amazon_transcribe.client import TranscribeStreamingClient
+        
+        # Get AWS credentials
+        session = get_session()
+        credentials = session.get_credentials()
+        if not credentials:
+            raise RuntimeError("AWS credentials not found")
+            
+        frozen = credentials.get_frozen_credentials()
+        
+        # Create credential resolver
+        credential_resolver = StaticCredentialResolver(
+            access_key_id=frozen.access_key,
+            secret_access_key=frozen.secret_key,
+            session_token=frozen.token,
+        )
+        
+        # Create client
+        client = TranscribeStreamingClient(
+            region=self.settings.aws_region,
+            credential_resolver=credential_resolver,
+        )
+        
+        # Prepare PCM audio data
+        pcm_data = []
+        
+        # Collect audio data from queue
+        def collect_audio():
+            while True:
+                chunk = audio_queue.get()
+                if chunk is None:
+                    break
+                pcm_data.append(chunk)
+        
+        # Start audio collection in background
+        import threading
+        audio_thread = threading.Thread(target=collect_audio, daemon=True)
+        audio_thread.start()
+        
+        # Wait a bit for some audio data
+        await asyncio.sleep(2)
+        
+        if not pcm_data:
+            self.logger.warning("No audio data collected for transcription")
+            return
+        
+        # Combine all PCM data
+        combined_pcm = b''.join(pcm_data)
+        
+        # Start streaming
+        stream = await client.start_stream_transcription(
+            language_code="ja-JP",
+            media_encoding="pcm",
+            media_sample_rate_hz=16000,
+            show_speaker_label=True,
+            enable_partial_results_stabilization=True,
+            partial_results_stability="medium",
+        )
+        
+        # Send audio and process results
+        async def send_audio():
+            chunk_size = 3200  # 100ms chunks at 16kHz
+            for i in range(0, len(combined_pcm), chunk_size):
+                chunk = combined_pcm[i:i + chunk_size]
+                await stream.input_stream.send_audio_event(audio_chunk=chunk)
+                await asyncio.sleep(0.1)  # 100ms delay
+            await stream.input_stream.end_stream()
+        
+        async def process_results():
+            async for event in stream.output_stream:
+                transcript = getattr(event, "transcript", None)
+                if not transcript:
+                    continue
+                    
+                for result in getattr(transcript, "results", []) or []:
+                    result_id = getattr(result, "result_id", None)
+                    if not result_id:
+                        continue
+                        
+                    is_partial = getattr(result, "is_partial", False)
+                    if not is_partial and result_id in session_data["processed_result_ids"]:
+                        continue
+                        
+                    alternatives = getattr(result, "alternatives", []) or []
+                    if not alternatives:
+                        continue
+                        
+                    alternative = alternatives[0]
+                    text = (getattr(alternative, "transcript", "") or "").strip()
+                    if not text:
+                        continue
+                        
+                    speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
+                    
+                    self.logger.info(f"AWS Transcribe result: result_id={result_id}, is_partial={is_partial}, text='{text[:50]}...'")
+                    
+                    # Handle result with proper streaming logic using AWS result_id
+                    await self._handle_result_streaming(
+                        session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket
+                    )
+                    
+                    if not is_partial:
+                        session_data["processed_result_ids"].add(result_id)
+        
+        # Run both tasks concurrently
+        await asyncio.gather(send_audio(), process_results())
 
     def _speaker_from_items(self, session_data: dict, alternative: Any) -> tuple[str, str]:
         """Extract speaker information from transcribe alternative."""
