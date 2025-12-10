@@ -361,9 +361,17 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts.slice().reverse().map((item, index) => {
+                {transcripts.slice().reverse().map((item) => {
                   const itemData = item as any;
-                  const key = itemData.result_id ?? `idx-${itemData.index ?? index}`;
+                  // Use result_id as primary key, fallback to index
+                  const key = itemData.result_id ?? `idx-${itemData.index}`;
+                  
+                  console.log('[SessionPage] Rendering item:', {
+                    key: key,
+                    text: item.transcript,
+                    result_id: itemData.result_id,
+                    index: itemData.index
+                  });
                   
                   return (
                     <article key={key} className="transcript-item">

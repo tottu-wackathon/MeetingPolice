@@ -139,53 +139,31 @@ class SessionController:
                         
                     is_partial = result.get("is_partial", False)
                     
-                    # Track ongoing utterance with consistent result_id
-                    if not hasattr(session_data, 'current_utterance_id'):
+                    # Simple utterance tracking - use single ID for all partial results
+                    if 'current_utterance_id' not in session_data:
                         session_data['current_utterance_id'] = None
-                        session_data['last_partial_text'] = ""
                     
-                    # Determine if this is a new utterance or continuation
                     if is_partial:
-                        # For partial results, check if this is continuation of previous utterance
-                        last_text = session_data['last_partial_text']
-                        is_continuation = False
-                        
-                        if last_text and len(last_text) > 0:
-                            # Check if current text is an extension of previous text
-                            # Allow for some flexibility in matching
-                            min_len = min(len(last_text), len(transcript))
-                            if min_len > 3:  # Only check if we have enough text
-                                # Check if they share a common prefix
-                                common_prefix_len = 0
-                                for i in range(min_len):
-                                    if last_text[i] == transcript[i]:
-                                        common_prefix_len += 1
-                                    else:
-                                        break
-                                
-                                # Consider it continuation if >70% matches or new text is longer
-                                if (common_prefix_len / min_len > 0.7) or (len(transcript) > len(last_text)):
-                                    is_continuation = True
-                        
-                        if session_data['current_utterance_id'] is None or not is_continuation:
-                            # New utterance started
+                        # For partial results, always use the same ID
+                        if session_data['current_utterance_id'] is None:
+                            # Start new utterance
                             session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
-                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']} (text: '{transcript}')")
-                        else:
-                            self.logger.info(f"Continuing utterance: {session_data['current_utterance_id']} (text: '{transcript}')")
+                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']}")
                         
-                        session_data['last_partial_text'] = transcript
                         result_id = session_data['current_utterance_id']
+                        self.logger.info(f"Partial result: '{transcript}' (ID: {result_id})")
                     else:
-                        # Final result - use current utterance ID if available
+                        # Final result - use current ID and then reset
                         if session_data['current_utterance_id'] is not None:
                             result_id = session_data['current_utterance_id']
+                            self.logger.info(f"Final result: '{transcript}' (ID: {result_id})")
                         else:
+                            # No partial results, direct final result
                             result_id = f"session_{session_data['next_entry_index']}"
+                            self.logger.info(f"Direct final result: '{transcript}' (ID: {result_id})")
                         
                         # Reset for next utterance
                         session_data['current_utterance_id'] = None
-                        session_data['last_partial_text'] = ""
                     
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
