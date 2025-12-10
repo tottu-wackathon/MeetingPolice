@@ -81,8 +81,7 @@ export function useTranscripts(
                 text: payload.text,
                 result_id: payload.result_id,
                 index: payload.index,
-                is_partial: payload.is_partial,
-                timestamp: payload.timestamp
+                is_partial: payload.is_partial
               });
               
               setTranscripts((prev) => {
