@@ -11,12 +11,13 @@ from backend.config import get_settings
 
 class VonageClient:
     def __init__(self):
-        # Backend では Vonage 資格情報を使わず、常にモック動作にする
         self.settings = get_settings()
-        self.api_key = None
-        self.api_secret = None
+        self.api_key = self.settings.vonage_api_key
+        self.api_secret = self.settings.vonage_api_secret
         self.logger = logging.getLogger(__name__)
-        self.client = None
+        self.client = (
+            OpenTok(self.api_key, self.api_secret) if self.api_key and self.api_secret else None
+        )
 
     def create_session(self, meeting_id: str) -> dict[str, Any]:
         if not self.client:

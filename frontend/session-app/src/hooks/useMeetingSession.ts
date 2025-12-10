@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MeetingSession, Participant } from '../types';
-import { validateMeetingId } from '../services/api';
+import { validateMeetingId, joinMeeting } from '../services/api';
 
 export function useMeetingSession() {
   const envApiKey = import.meta.env.VITE_VONAGE_APP_ID as string | undefined;
@@ -25,7 +25,7 @@ export function useMeetingSession() {
       throw new Error('Meeting ID required');
     }
 
-    // バリデーション: バックエンドのミーティング存在確認のみ使う（Vonage 資格情報は使用しない）
+    // バリデーション
     try {
       await validateMeetingId(trimmed);
     } catch (err) {
@@ -35,38 +35,48 @@ export function useMeetingSession() {
       throw err;
     }
 
-    // Vonage 接続は .env の固定値のみを使う
-    if (hasEnvSession) {
-      const fallbackSession: MeetingSession = {
-        meetingId: meetingId.trim() || 'static-meeting',
-        title: 'Static Vonage Session',
-        status: 'live',
-        sessionId: envSessionId!,
-        token: envToken!,
-        apiKey: envApiKey!,
-        videoEnabled: true,
+    // 1) バックエンドから Vonage 資格情報を取得
+    try {
+      const data = await joinMeeting(trimmed);
+      const videoEnabled = Boolean(data.apiKey && data.sessionId && data.token);
+      const sessionPayload = { ...data, videoEnabled };
+      setSession(sessionPayload);
+      setStatus('connected');
+      return sessionPayload;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '参加に失敗しました';
+      setError(message);
+      // 2) フロントの固定値でフォールバック
+      if (hasEnvSession) {
+        const fallbackSession: MeetingSession = {
+          meetingId: trimmed || 'static-meeting',
+          title: 'Static Vonage Session',
+          status: 'live',
+          sessionId: envSessionId!,
+          token: envToken!,
+          apiKey: envApiKey!,
+          videoEnabled: true,
+          participants: [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }],
+        };
+        setSession(fallbackSession);
+        setStatus('connected');
+        return fallbackSession;
+      }
+      // 3) 音声のみ
+      const audioOnly: MeetingSession = {
+        meetingId: trimmed || 'audio-only',
+        title: 'Audio-only session',
+        status: 'audio-only',
+        sessionId: '',
+        token: '',
+        apiKey: '',
+        videoEnabled: false,
         participants: [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }],
       };
-      setSession(fallbackSession);
+      setSession(audioOnly);
       setStatus('connected');
-      return fallbackSession;
+      return audioOnly;
     }
-
-    // 環境変数が無ければ音声のみのローカルセッション
-    const audioOnly: MeetingSession = {
-      meetingId: meetingId.trim() || 'audio-only',
-      title: 'Audio-only session',
-      status: 'audio-only',
-      sessionId: '',
-      token: '',
-      apiKey: '',
-      videoEnabled: false,
-      participants: [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }],
-    };
-    setSession(audioOnly);
-    setStatus('connected');
-    setError('Vonage の環境変数が設定されていません。音声のみで参加します。');
-    return audioOnly;
   };
 
   const create = async (title: string, scheduledFor?: string) => {
