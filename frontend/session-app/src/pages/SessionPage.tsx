@@ -97,6 +97,8 @@ export function SessionPage() {
     navigate('/');
   };
 
+  const hasVideoCreds = Boolean(session?.apiKey && session?.sessionId && session?.token);
+
   return (
     <Layout
       title="MeetingPolice Live Session"
@@ -127,13 +129,29 @@ export function SessionPage() {
             </div>
           </section>
 
-          <VonageStage
-            apiKey={session.apiKey}
-            sessionId={session.sessionId}
-            token={session.token}
-            muted={isMuted}
-            videoOff={isVideoOff}
-          />
+          {hasVideoCreds ? (
+            <VonageStage
+              apiKey={session.apiKey}
+              sessionId={session.sessionId}
+              token={session.token}
+              muted={isMuted}
+              videoOff={isVideoOff}
+            />
+          ) : (
+            <section className="panel video-stage live-video">
+              <div className="panel-header">
+                <h2>Vonage ビデオ</h2>
+                <span className="status-chip error">video unavailable</span>
+              </div>
+              <div className="video-grid">
+                <div className="video-tile speaking">
+                  <div className="video-feed">
+                    <p className="video-placeholder">ビデオ資格情報が不足しています。音声のみご利用ください。</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
 
           <div className="panel-grid">
             <section className="panel transcript-panel">
