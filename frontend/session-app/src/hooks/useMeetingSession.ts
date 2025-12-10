@@ -3,6 +3,11 @@ import type { MeetingSession, Participant } from '../types';
 import { createMeetingSession, joinMeeting } from '../services/api';
 
 export function useMeetingSession() {
+  const envApiKey = import.meta.env.VITE_VONAGE_APP_ID as string | undefined;
+  const envSessionId = import.meta.env.VITE_VONAGE_SESSION_ID as string | undefined;
+  const envToken = import.meta.env.VITE_VONAGE_TOKEN as string | undefined;
+  const hasEnvSession = Boolean(envApiKey && envSessionId && envToken);
+
   const [session, setSession] = useState<MeetingSession | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -14,8 +19,21 @@ export function useMeetingSession() {
     setStatus('connecting');
     setError(null);
     try {
-      const data = await joinMeeting(meetingId.trim());
-      setSession(data);
+      if (hasEnvSession) {
+        const fallbackSession: MeetingSession = {
+          meetingId: meetingId.trim() || 'static-meeting',
+          title: 'Static Vonage Session',
+          status: 'live',
+          sessionId: envSessionId!,
+          token: envToken!,
+          apiKey: envApiKey!,
+          participants: [],
+        };
+        setSession(fallbackSession);
+      } else {
+        const data = await joinMeeting(meetingId.trim());
+        setSession(data);
+      }
       setStatus('connected');
     } catch (err) {
       setStatus('error');
