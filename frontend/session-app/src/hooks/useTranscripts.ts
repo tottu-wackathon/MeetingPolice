@@ -60,27 +60,72 @@ export function useTranscripts(
         ws.onmessage = (event) => {
           console.log('[useTranscripts] Received message:', event.data);
           try {
-            const payload = JSON.parse(event.data);
-            console.log('[useTranscripts] Parsed payload:', payload);
+            const data = JSON.parse(event.data);
+            console.log('[useTranscripts] Parsed data:', data);
             
-            if (payload?.type === 'realtime_classification') {
-              console.log('[useTranscripts] Classification payload:', payload.payload);
-              onClassification?.(payload.payload);
+            if (data?.type === 'realtime_classification') {
+              console.log('[useTranscripts] Classification payload:', data.payload);
+              onClassification?.(data.payload);
               return;
             }
             
-            // Only process if there's actual transcript content
-            if (payload.transcript && payload.transcript.trim()) {
-              const entry: LiveTranscript = {
-                meetingId,
-                transcript: payload.transcript.trim(),
-                sentiment: payload.sentiment ?? 'NEUTRAL',
-                timestamp: payload.timestamp ?? new Date().toISOString(),
-                speaker: payload.speaker,
-                isPartial: payload.is_partial,
-              };
-              console.log('[useTranscripts] Adding transcript entry:', entry);
-              setTranscripts((prev) => [entry, ...prev].slice(0, 50));
+            if (data?.type === 'transcript') {
+              const payload = data.payload;
+              const action = data.action || 'append';
+              
+              console.log('[useTranscripts] Transcript update:', { action, payload });
+              
+              setTranscripts((prev) => {
+                const key = payload.result_id ?? `idx-${payload.index}`;
+                
+                const updateExisting = (items: LiveTranscript[]) =>
+                  items.map((item) => {
+                    const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
+                    if (itemKey !== key) return item;
+                    
+                    return {
+                      meetingId,
+                      transcript: payload.text || '',
+                      sentiment: 'NEUTRAL',
+                      timestamp: payload.timestamp || item.timestamp,
+                      speaker: payload.speaker || item.speaker,
+                      isPartial: false,
+                      // Keep additional properties for key management
+                      ...(item as any),
+                      ...payload,
+                    } as LiveTranscript;
+                  });
+                
+                const exists = prev.some((item) => {
+                  const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
+                  return itemKey === key;
+                });
+                
+                if (action === 'append') {
+                  if (exists) {
+                    return updateExisting(prev);
+                  }
+                  
+                  const newEntry: LiveTranscript = {
+                    meetingId,
+                    transcript: payload.text || '',
+                    sentiment: 'NEUTRAL',
+                    timestamp: payload.timestamp || new Date().toISOString(),
+                    speaker: payload.speaker || 'Unknown',
+                    isPartial: false,
+                    // Add additional properties for key management
+                    ...(payload as any),
+                  };
+                  
+                  return [newEntry, ...prev].slice(0, 50);
+                }
+                
+                if (action === 'update' && exists) {
+                  return updateExisting(prev);
+                }
+                
+                return prev;
+              });
             }
           } catch (err) {
             console.warn('Failed to parse transcript payload', err);
