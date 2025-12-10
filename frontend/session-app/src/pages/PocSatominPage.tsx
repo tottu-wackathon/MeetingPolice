@@ -340,6 +340,29 @@ export function PocSatominPage() {
 
   // 音声アラートを再生
   const playVoiceAlert = (message: string) => {
+    // 「一致度が低下しています」の場合は音声ファイルを使用
+    if (message === '一致度が低下しています') {
+      const audio = new Audio('/alert-sound.mp3');
+      audio.volume = 1.0; // 最大音量
+      // 音声ファイルが読み込まれたら再生
+      audio.addEventListener('canplaythrough', () => {
+        audio.play().catch(error => {
+          console.error('音声ファイルの再生に失敗:', error);
+          // フォールバック: 音声合成を使用
+          playTextToSpeech(message);
+        });
+      });
+      // すぐに読み込み開始
+      audio.load();
+      return;
+    }
+
+    // その他のメッセージは音声合成を使用
+    playTextToSpeech(message);
+  };
+
+  // 音声合成での再生
+  const playTextToSpeech = (message: string) => {
     // 既存の音声を停止
     if (speechSynthRef.current) {
       window.speechSynthesis.cancel();
@@ -438,9 +461,9 @@ export function PocSatominPage() {
 
     if (shouldAlert && !isAlertActive) {
       // アラートを開始
-      playVoiceAlert('一致度が下がっています');
+      playVoiceAlert('一致度が低下しています');
       alertIntervalRef.current = window.setInterval(() => {
-        playVoiceAlert('一致度が下がっています');
+        playVoiceAlert('一致度が低下しています');
       }, 60000);
     } else if (!shouldAlert && isAlertActive) {
       // アラートを停止（インターバルと音声合成の両方）
@@ -755,9 +778,9 @@ export function PocSatominPage() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
-                              {displayName}
-                            </span>
+                          <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
+                            {displayName}
+                          </span>
                           <input
                             type="text"
                             placeholder="名前を入力"
@@ -811,8 +834,8 @@ export function PocSatominPage() {
               const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
               const avgAlignment = recent10.length
                 ? Math.round(
-                    recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
-                  )
+                  recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+                )
                 : 0;
 
               const padding = 8; // 両端が見切れないように少し余白

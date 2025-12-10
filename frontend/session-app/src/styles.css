@@ -30,8 +30,6 @@ body::before {
   z-index: 0;
 }
 
-
-
 /* ===== レイアウト ===== */
 .mp-session-layout {
   max-width: 960px;
@@ -329,15 +327,15 @@ strong {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .transcript-item {
   background: rgba(10, 14, 39, 0.9) !important;
   color: #00ffff !important;
-  border: 2px solid #00ffff !important;
-  border-radius: 12px;
-  padding: 0.5rem !important;
+  border: 1px solid #00ffff !important;
+  border-radius: 8px;
+  padding: 0.3rem 0.4rem !important;
   overflow: visible !important;
   min-height: auto !important;
 }
@@ -351,6 +349,7 @@ strong {
   color: #00ffff !important;
   margin-bottom: 0.25rem !important;
   font-size: 0.9em !important;
+  padding: 0.5rem 0.7rem !important;
 }
 
 .transcript-item header strong,
@@ -368,8 +367,6 @@ strong {
   white-space: normal !important;
   word-wrap: break-word !important;
   overflow-wrap: break-word !important;
-  max-height: none !important;
-  overflow: visible !important;
 }
 
 .transcript-item p,
@@ -591,93 +588,15 @@ audio {
   min-height: 360px;
 }
 
-.transcript-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  max-height: 420px;
-  overflow-y: auto;
-}
 
-.transcript-item {
-  border: 2px solid rgba(0, 255, 255, 0.25) !important;
-}
 
-.transcript-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.35rem;
-}
 
-.transcript-meta .time {
-  font-weight: 700;
-}
-
-.transcript-meta .sentiment {
-  padding: 0.25rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid #00ffff;
-}
-
-.transcript-meta .sentiment.positive {
-  color: #22c55e !important;
-  border-color: #22c55e;
-}
-
-.transcript-meta .sentiment.negative {
-  color: #ef4444 !important;
-  border-color: #ef4444;
-}
-
-.transcript-text {
-  margin: 0;
-  line-height: 1.5;
-}
 
 .empty {
   color: rgba(255, 255, 255, 0.7) !important;
 }
 
-.video-stage .video-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
-}
 
-.video-tile {
-  background: linear-gradient(145deg, rgba(0, 255, 255, 0.1), rgba(0, 0, 255, 0.1));
-  border: 2px solid rgba(0, 255, 255, 0.3);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 0 16px rgba(0, 255, 255, 0.25);
-}
-
-.video-tile .video-feed {
-  min-height: 220px;
-  background: radial-gradient(circle at 20% 20%, rgba(0, 255, 255, 0.1), transparent 40%),
-    linear-gradient(45deg, rgba(0, 0, 255, 0.15), rgba(0, 255, 255, 0.05));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.video-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-}
-
-.video-meta .name {
-  margin: 0;
-  font-weight: 700;
-}
-
-.video-meta .role {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.7) !important;
-}
 
 /* ===== アニメーション ===== */
 @keyframes pulse {
