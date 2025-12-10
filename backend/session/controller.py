@@ -165,58 +165,105 @@ class SessionController:
 
     async def _handle_websocket_audio(self, websocket: WebSocket, stream, session_data: dict) -> None:
         """Handle audio data from WebSocket and send to Transcribe."""
+        audio_count = 0
+        last_audio_time = asyncio.get_event_loop().time()
+        
         try:
             while True:
-                message = await websocket.receive()
+                try:
+                    # Add timeout to prevent hanging
+                    message = await asyncio.wait_for(websocket.receive(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    # Check if we should send silence to prevent Transcribe timeout
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_audio_time > 10:  # 10 seconds without audio
+                        silence_chunk = b'\x00' * 320  # 10ms of silence
+                        await stream.input_stream.send_audio_event(audio_chunk=silence_chunk)
+                        last_audio_time = current_time
+                        self.logger.debug("Sent silence chunk to prevent Transcribe timeout")
+                    continue
+                
                 if message.get("type") == "websocket.disconnect":
                     break
                 
                 data = message.get("bytes")
-                if data:
+                if data and len(data) > 0:
                     await stream.input_stream.send_audio_event(audio_chunk=data)
+                    audio_count += 1
+                    last_audio_time = asyncio.get_event_loop().time()
+                    
+                    if audio_count % 100 == 0:
+                        self.logger.debug(f"Processed {audio_count} audio chunks")
+                        
                 elif message.get("text"):
                     if message["text"] == "close":
                         break
                         
         except WebSocketDisconnect:
-            pass
+            self.logger.info("WebSocket disconnected during audio handling")
+        except Exception as e:
+            self.logger.error(f"Error handling WebSocket audio: {e}")
         finally:
-            await stream.input_stream.end_stream()
+            try:
+                await stream.input_stream.end_stream()
+                self.logger.info(f"Audio stream ended, processed {audio_count} chunks")
+            except Exception as e:
+                self.logger.error(f"Error ending audio stream: {e}")
 
     async def _handle_transcribe_results(self, stream, session_data: dict, websocket: WebSocket) -> None:
         """Handle transcription results from AWS Transcribe."""
+        result_count = 0
         try:
+            self.logger.info("Starting to handle Transcribe results...")
             async for event in stream.output_stream:
-                transcript = getattr(event, "transcript", None)
-                if not transcript:
+                try:
+                    transcript = getattr(event, "transcript", None)
+                    if not transcript:
+                        continue
+                        
+                    for result in getattr(transcript, "results", []) or []:
+                        result_id = getattr(result, "result_id", None)
+                        if not result_id:
+                            continue
+                            
+                        is_partial = getattr(result, "is_partial", False)
+                        if not is_partial and result_id in session_data["processed_result_ids"]:
+                            continue
+                            
+                        alternatives = getattr(result, "alternatives", []) or []
+                        if not alternatives:
+                            continue
+                            
+                        alternative = alternatives[0]
+                        text = (getattr(alternative, "transcript", "") or "").strip()
+                        if not text:
+                            continue
+                            
+                        result_count += 1
+                        self.logger.info(f"Transcribe result #{result_count}: '{text}' (partial: {is_partial})")
+                        
+                        speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
+                        await self._handle_result(session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket)
+                        
+                        if not is_partial:
+                            session_data["processed_result_ids"].add(result_id)
+                            
+                except Exception as e:
+                    self.logger.error(f"Error processing individual transcribe result: {e}")
                     continue
-                    
-                for result in getattr(transcript, "results", []) or []:
-                    result_id = getattr(result, "result_id", None)
-                    if not result_id:
-                        continue
-                        
-                    is_partial = getattr(result, "is_partial", False)
-                    if not is_partial and result_id in session_data["processed_result_ids"]:
-                        continue
-                        
-                    alternatives = getattr(result, "alternatives", []) or []
-                    if not alternatives:
-                        continue
-                        
-                    alternative = alternatives[0]
-                    text = (getattr(alternative, "transcript", "") or "").strip()
-                    if not text:
-                        continue
-                        
-                    speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
-                    await self._handle_result(session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket)
-                    
-                    if not is_partial:
-                        session_data["processed_result_ids"].add(result_id)
                         
         except Exception as e:
             self.logger.error("Error handling transcribe results: %s", e)
+            # Try to send error to client
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Transcription error: {str(e)}"
+                })
+            except:
+                pass
+        finally:
+            self.logger.info(f"Transcribe results handler finished, processed {result_count} results")
 
     async def _start_mock_transcription(self, session_data: dict, websocket: WebSocket) -> None:
         """Fallback mock transcription for testing."""

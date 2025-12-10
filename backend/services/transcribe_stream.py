@@ -152,18 +152,28 @@ class TranscribeStream:
         # Create audio stream generator
         async def audio_generator():
             import asyncio
+            import time
+            last_chunk_time = time.time()
+            silence_chunk = b'\x00' * 320  # 10ms of silence at 16kHz
+            
             while True:
                 try:
                     # Use asyncio to avoid blocking
                     chunk = await asyncio.get_event_loop().run_in_executor(
-                        None, audio_queue.get, True, 1.0  # 1 second timeout
+                        None, audio_queue.get, True, 0.5  # 0.5 second timeout
                     )
                     if chunk is None:
                         logger.info("Audio stream ended")
                         break
+                    last_chunk_time = time.time()
                     yield chunk
                 except:
-                    # Timeout or queue empty, continue
+                    # Timeout or queue empty, send silence to prevent timeout
+                    current_time = time.time()
+                    if current_time - last_chunk_time > 10:  # Send silence every 10 seconds
+                        logger.debug("Sending silence chunk to prevent timeout")
+                        yield silence_chunk
+                        last_chunk_time = current_time
                     await asyncio.sleep(0.1)
         
         # Start streaming

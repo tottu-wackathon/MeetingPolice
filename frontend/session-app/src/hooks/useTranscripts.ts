@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { LiveTranscript } from '../types';
 
 const buildWsUrl = (meetingId: string) => {
-  const apiBase = import.meta.env.VITE_API_BASE ?? '/api';
+  const apiBase = (import.meta as any).env?.VITE_API_BASE ?? '/api';
   if (apiBase.startsWith('http')) {
     const url = new URL(apiBase);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -94,22 +94,26 @@ export function useTranscripts(
       try {
         console.log('[useTranscripts] Requesting microphone access...');
         
-        // Request microphone with specific constraints
+        // First check if getUserMedia is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia is not supported in this browser');
+        }
+        
+        // Request microphone with basic constraints first
         mediaStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            sampleRate: 16000,
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }, 
+          audio: true,
           video: false 
         });
         
-        console.log('[useTranscripts] Microphone access granted');
+        console.log('[useTranscripts] Microphone access granted, tracks:', mediaStream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState,
+          label: t.label
+        })));
         
-        // Create audio context
-        audioContext = new AudioContext({ sampleRate: 16000 });
+        // Create audio context with default sample rate, then resample if needed
+        audioContext = new AudioContext();
         
         // Resume audio context if suspended (required by some browsers)
         if (audioContext.state === 'suspended') {
@@ -117,20 +121,23 @@ export function useTranscripts(
           console.log('[useTranscripts] Audio context resumed');
         }
         
+        console.log('[useTranscripts] Audio context created, sampleRate:', audioContext.sampleRate);
+        
         const source = audioContext.createMediaStreamSource(mediaStream);
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        // Use larger buffer size for better performance
+        const bufferSize = 4096;
+        processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
         
         source.connect(processor);
         processor.connect(audioContext.destination);
         
         let audioSentCount = 0;
         let silenceCount = 0;
+        let lastAudioTime = Date.now();
         
         processor.onaudioprocess = (event) => {
           if (!ws || ws.readyState !== WebSocket.OPEN) {
-            if (audioSentCount % 100 === 0) {
-              console.log('[useTranscripts] WebSocket not ready, readyState:', ws?.readyState);
-            }
             return;
           }
           
@@ -139,31 +146,48 @@ export function useTranscripts(
           // Check for actual audio activity
           let hasAudio = false;
           let maxAmplitude = 0;
+          let rms = 0;
+          
           for (let i = 0; i < input.length; i++) {
             const amplitude = Math.abs(input[i]);
             maxAmplitude = Math.max(maxAmplitude, amplitude);
-            if (amplitude > 0.01) { // Threshold for detecting audio
+            rms += input[i] * input[i];
+            if (amplitude > 0.005) { // Lower threshold for better sensitivity
               hasAudio = true;
             }
           }
           
-          if (!hasAudio) {
-            silenceCount++;
-            if (silenceCount % 100 === 0) {
-              console.log('[useTranscripts] Silence detected, max amplitude:', maxAmplitude);
-            }
-          } else {
+          rms = Math.sqrt(rms / input.length);
+          
+          if (hasAudio) {
+            lastAudioTime = Date.now();
             if (silenceCount > 0) {
-              console.log('[useTranscripts] Audio detected! Max amplitude:', maxAmplitude);
+              console.log('[useTranscripts] Audio detected! Max amplitude:', maxAmplitude.toFixed(4), 'RMS:', rms.toFixed(4));
               silenceCount = 0;
             }
+          } else {
+            silenceCount++;
+          }
+          
+          // Resample to 16kHz if needed
+          let outputData = input;
+          if (audioContext && audioContext.sampleRate !== 16000) {
+            const ratio = audioContext.sampleRate / 16000;
+            const outputLength = Math.floor(input.length / ratio);
+            const resampled = new Float32Array(outputLength);
+            
+            for (let i = 0; i < outputLength; i++) {
+              const srcIndex = Math.floor(i * ratio);
+              resampled[i] = input[srcIndex];
+            }
+            outputData = resampled;
           }
           
           // Convert to 16-bit PCM
-          const buffer = new ArrayBuffer(input.length * 2);
+          const buffer = new ArrayBuffer(outputData.length * 2);
           const view = new DataView(buffer);
-          for (let i = 0; i < input.length; i++) {
-            let sample = input[i];
+          for (let i = 0; i < outputData.length; i++) {
+            let sample = outputData[i];
             sample = Math.max(-1, Math.min(1, sample));
             view.setInt16(i * 2, sample * 0x7fff, true);
           }
@@ -172,8 +196,8 @@ export function useTranscripts(
             ws.send(buffer);
             audioSentCount++;
             
-            if (audioSentCount % 50 === 0) {
-              console.log(`[useTranscripts] Sent audio packet #${audioSentCount}, hasAudio: ${hasAudio}, maxAmp: ${maxAmplitude.toFixed(4)}`);
+            if (audioSentCount % 100 === 0) {
+              console.log(`[useTranscripts] Sent audio packet #${audioSentCount}, hasAudio: ${hasAudio}, maxAmp: ${maxAmplitude.toFixed(4)}, timeSinceLastAudio: ${Date.now() - lastAudioTime}ms`);
             }
           } catch (err) {
             console.error('[useTranscripts] Failed to send audio data:', err);
@@ -181,6 +205,19 @@ export function useTranscripts(
         };
         
         console.log('[useTranscripts] Audio processing started');
+        
+        // Send a heartbeat to keep the connection alive
+        const heartbeatInterval = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            // Send a small silence chunk to prevent timeout
+            const silenceBuffer = new ArrayBuffer(320); // 10ms of silence at 16kHz
+            ws.send(silenceBuffer);
+          }
+        }, 5000); // Every 5 seconds
+        
+        // Store interval for cleanup
+        (processor as any).heartbeatInterval = heartbeatInterval;
+        
       } catch (err) {
         console.error('[useTranscripts] Microphone setup failed:', err);
         
@@ -188,11 +225,17 @@ export function useTranscripts(
         if (err instanceof DOMException) {
           if (err.name === 'NotAllowedError') {
             console.error('[useTranscripts] Microphone access denied by user');
+            alert('マイクへのアクセスが拒否されました。ブラウザの設定でマイクアクセスを許可してください。');
           } else if (err.name === 'NotFoundError') {
             console.error('[useTranscripts] No microphone found');
+            alert('マイクが見つかりません。マイクが接続されているか確認してください。');
           } else if (err.name === 'NotReadableError') {
             console.error('[useTranscripts] Microphone is being used by another application');
+            alert('マイクが他のアプリケーションで使用されています。');
           }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          alert(`マイクの初期化に失敗しました: ${message}`);
         }
       }
     };
@@ -207,6 +250,10 @@ export function useTranscripts(
         ws.close();
       }
       if (processor) {
+        // Clear heartbeat interval
+        if ((processor as any).heartbeatInterval) {
+          clearInterval((processor as any).heartbeatInterval);
+        }
         processor.disconnect();
         processor.onaudioprocess = null;
       }
