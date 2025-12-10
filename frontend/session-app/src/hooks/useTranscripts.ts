@@ -80,7 +80,8 @@ export function useTranscripts(
                 key: key,
                 text: payload.text,
                 result_id: payload.result_id,
-                index: payload.index
+                index: payload.index,
+                is_partial: payload.is_partial
               });
               
               setTranscripts((prev) => {
@@ -103,7 +104,7 @@ export function useTranscripts(
                       sentiment: 'NEUTRAL',
                       timestamp: payload.timestamp || item.timestamp,
                       speaker: payload.speaker || item.speaker,
-                      isPartial: false,
+                      isPartial: payload.is_partial || false,
                       // Keep additional properties for key management
                       ...(item as any),
                       ...payload,
@@ -126,7 +127,7 @@ export function useTranscripts(
                     sentiment: 'NEUTRAL',
                     timestamp: payload.timestamp || new Date().toISOString(),
                     speaker: payload.speaker || 'Unknown',
-                    isPartial: false,
+                    isPartial: payload.is_partial || false,
                     // Add additional properties for key management
                     ...(payload as any),
                   };
@@ -134,6 +135,7 @@ export function useTranscripts(
                   console.log('[useTranscripts] Adding new entry:', {
                     text: newEntry.transcript,
                     key: key,
+                    is_partial: newEntry.isPartial,
                     totalItems: prev.length + 1
                   });
                   
