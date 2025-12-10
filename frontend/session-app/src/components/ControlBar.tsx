@@ -1,5 +1,4 @@
 type Props = {
-  status: 'idle' | 'connecting' | 'connected' | 'error';
   isMuted: boolean;
   isVideoOff: boolean;
   handRaised: boolean;
@@ -10,7 +9,6 @@ type Props = {
 };
 
 export function ControlBar({
-  status,
   isMuted,
   isVideoOff,
   handRaised,
@@ -20,29 +18,19 @@ export function ControlBar({
   onLeave,
 }: Props) {
   return (
-    <section className="panel control-bar">
-      <div>
-        <p className="label">Status</p>
-        <strong>{status}</strong>
-      </div>
-      <div className="controls">
-        <button type="button" onClick={onToggleMute} className={`control-btn ${isMuted ? 'off' : ''}`}>
-          <span aria-hidden="true">{isMuted ? '🔇' : '🎙️'}</span>
-          {isMuted ? 'ミュート解除' : 'ミュート'}
-        </button>
-        <button type="button" onClick={onToggleVideo} className={`control-btn ${isVideoOff ? 'off' : ''}`}>
-          <span aria-hidden="true">{isVideoOff ? '📷' : '🎥'}</span>
-          {isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}
-        </button>
-        <button type="button" onClick={onToggleHand} className={`control-btn ${handRaised ? 'active' : ''}`}>
-          <span aria-hidden="true">✋</span>
-          {handRaised ? '手を下げる' : '手を挙げる'}
-        </button>
-        <button type="button" className="control-btn danger" onClick={onLeave}>
-          <span aria-hidden="true">🚪</span>
-          退出
-        </button>
-      </div>
-    </section>
+    <div className="floating-controls">
+      <button type="button" onClick={onToggleMute} className={`icon-btn ${isMuted ? 'off' : ''}`} title={isMuted ? 'ミュート解除' : 'ミュート'}>
+        {isMuted ? '🔇' : '🎙️'}
+      </button>
+      <button type="button" onClick={onToggleVideo} className={`icon-btn ${isVideoOff ? 'off' : ''}`} title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}>
+        {isVideoOff ? '📷' : '🎥'}
+      </button>
+      <button type="button" onClick={onToggleHand} className={`icon-btn ${handRaised ? 'active' : ''}`} title={handRaised ? '手を下げる' : '手を挙げる'}>
+        ✋
+      </button>
+      <button type="button" className="icon-btn danger" onClick={onLeave} title="退出">
+        🚪
+      </button>
+    </div>
   );
 }

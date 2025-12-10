@@ -205,41 +205,20 @@ export function VonageStage({
   }, [videoOff]);
 
   return (
-    <section className="panel video-stage live-video">
-      <div className="panel-header">
-        <h2>Vonage ビデオ</h2>
-        <span className={`status-chip ${enabled ? status : 'idle'}`}>
-          {!enabled ? '音声のみ' : status === 'connected' ? 'Live' : status === 'connecting' ? '接続中' : status}
-        </span>
+    <section className="video-stage compact">
+      <div className="video-badge">
+        {!enabled ? 'Audio Only' : status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Idle'}
       </div>
-      <div className="video-grid">
-        <div className="video-tile speaking">
+      <div className="video-strip">
+        <div className="video-tile small">
           <div className="video-feed" ref={publisherContainerRef}>
-            {!enabled && <p className="video-placeholder">ビデオは無効化されています。音声のみで参加できます。</p>}
-            {enabled && !publisherRef.current && status !== 'error' && (
-              <p className="video-placeholder">カメラを初期化しています…</p>
-            )}
-            {enabled && status === 'error' && <p className="video-placeholder">ビデオを開始できませんでした。</p>}
-          </div>
-          <div className="video-meta">
-            <div>
-              <p className="name">You</p>
-              <p className="role">Host</p>
-            </div>
-            <span className="badge">{muted ? 'Muted' : 'Live mic'}</span>
+            {!enabled && <p className="video-placeholder">Audio</p>}
+            {enabled && !publisherRef.current && status !== 'error' && <p className="video-placeholder">Init…</p>}
+            {enabled && status === 'error' && <p className="video-placeholder">Video failed</p>}
           </div>
         </div>
-        <div className="video-tile">
-          <div className="video-feed" ref={subscriberContainerRef}>
-            <p className="video-placeholder">参加者が入室すると映像が表示されます</p>
-          </div>
-          <div className="video-meta">
-            <div>
-              <p className="name">Participants</p>
-              <p className="role">vonage</p>
-            </div>
-            <span className="badge ghost">待機中</span>
-          </div>
+        <div className="video-tile small" ref={subscriberContainerRef}>
+          {!enabled && <p className="video-placeholder">Audio</p>}
         </div>
       </div>
       {(fallbackNotice || error) && (

@@ -148,30 +148,87 @@ export function SessionPage() {
   if (session) {
     content = (
       <>
-        <section className="panel meeting-overview">
-          <div>
-            <p className="label">現在のセッション</p>
-            <h2>{session.title}</h2>
-            <p className="label">Meeting ID</p>
-            <code>{session.meetingId}</code>
+        <div className="session-grid">
+          <div className="left-column">
+            <VonageStage
+              apiKey={session.apiKey}
+              sessionId={session.sessionId}
+              token={session.token}
+              muted={isMuted}
+              videoOff={isVideoOff}
+              enabled={videoEnabled}
+              fallbackNotice={videoFallbackMessage}
+              onParticipantsChange={(list) => {
+                const normalized = list.map((p) => ({
+                  id: p.id,
+                  name: p.name || 'Guest',
+                  role: p.role,
+                  isSpeaking: false,
+                }));
+                setParticipants(normalized.length > 0 ? normalized : [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
+              }}
+            />
+            <section className="panel transcript-panel compact">
+              <div className="panel-header">
+                <h2>文字起こし</h2>
+                <span className="badge">{transcripts.length}</span>
+              </div>
+              <div className="transcript-list">
+                {transcripts.length === 0 && (
+                  <p className="empty">発話すると表示されます。</p>
+                )}
+                {transcripts.map((entry, index) => (
+                  <div key={`${entry.timestamp}-${index}`} className="transcript-item">
+                    <div className="transcript-meta">
+                      <span className="time">{formatTime(new Date(entry.timestamp))}</span>
+                    </div>
+                    <p className="transcript-text">{entry.transcript || '…'}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
-          <div className="session-meta">
-            <div>
-              <p className="label">Vonage Session</p>
-              <p>{videoEnabled ? session.sessionId : 'ビデオ未接続'}</p>
-            </div>
-            <div>
-              <p className="label">Vonage API Key</p>
-              <p>{videoEnabled ? session.apiKey : '未設定（音声のみ）'}</p>
-            </div>
-            <div>
-              <p className="label">ステータス</p>
-              <p className="status-text">{status === 'connected' ? 'ライブ中' : status}</p>
-            </div>
-            <div>
-              <p className="label">参加者</p>
-              <p className="status-text">{participantCount} 人</p>
-            </div>
+
+          <div className="right-column">
+            <section className="panel classification-panel compact">
+              <div className="panel-header">
+                <div>
+                  <h2>リアルタイム分類</h2>
+                </div>
+                {avgAlignment !== null && (
+                  <span className="badge ghost">平均 {avgAlignment}%</span>
+                )}
+              </div>
+              {alignmentAlert && <p className="error" role="alert">{alignmentAlert}</p>}
+              {realtimeClassifications.length === 0 && (
+                <p className="faded">確定した発話が分類されます。</p>
+              )}
+              {realtimeClassifications.length > 0 && (
+                <div className="classification-list">
+                  {realtimeClassifications.slice().reverse().map((item) => (
+                    <article key={item.index} className="classification-row">
+                      <div className="classification-meta">
+                        <span className="category-tag">{item.category}</span>
+                        <span className="alignment-tag">{typeof item.alignment === 'number' ? `${item.alignment}%` : '―'}</span>
+                      </div>
+                      <p>{item.text}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+            <MetricsPanel samples={samples} />
+          </div>
+        </div>
+
+        <section className="panel meeting-overview compact">
+          <div className="session-meta small">
+            <span className="badge ghost">Meeting ID</span>
+            <code>{session.meetingId}</code>
+            <span className="badge ghost">Status</span>
+            <span className="mono">{status}</span>
+            <span className="badge ghost">Participants</span>
+            <span className="mono">{participantCount}</span>
           </div>
           <div className="participant-chips">
             {participants.map((p) => (
@@ -182,84 +239,7 @@ export function SessionPage() {
           </div>
         </section>
 
-        <VonageStage
-          apiKey={session.apiKey}
-          sessionId={session.sessionId}
-          token={session.token}
-          muted={isMuted}
-          videoOff={isVideoOff}
-          enabled={videoEnabled}
-          fallbackNotice={videoFallbackMessage}
-          onParticipantsChange={(list) => {
-            const normalized = list.map((p) => ({
-              id: p.id,
-              name: p.name || 'Guest',
-              role: p.role,
-              isSpeaking: false,
-            }));
-            setParticipants(normalized.length > 0 ? normalized : [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }]);
-          }}
-        />
-
-        <div className="panel-grid">
-          <section className="panel transcript-panel">
-            <div className="panel-header">
-              <h2>リアルタイム文字起こし</h2>
-              <span className="badge">{transcripts.length} 件</span>
-            </div>
-            <div className="transcript-list">
-              {transcripts.length === 0 && (
-                <p className="empty">まだ発話がありません。マイクをオンにして話してください。</p>
-              )}
-              {transcripts.map((entry, index) => (
-                <div key={`${entry.timestamp}-${index}`} className="transcript-item">
-                  <div className="transcript-meta">
-                    <span className="time">{formatTime(new Date(entry.timestamp))}</span>
-                    <span className={`sentiment ${entry.sentiment?.toLowerCase()}`}>
-                      {entry.sentiment}
-                    </span>
-                  </div>
-                  <p className="transcript-text">{entry.transcript || '…'}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <MetricsPanel samples={samples} />
-        </div>
-
-        <section className="panel classification-panel">
-          <div className="panel-header">
-            <div>
-              <p className="label">リアルタイム分類</p>
-              <h2>{realtimeClassifications.length} 件</h2>
-            </div>
-            {avgAlignment !== null && (
-              <span className="badge ghost">平均適合度 {avgAlignment}%</span>
-            )}
-          </div>
-          {alignmentAlert && <p className="error" role="alert">{alignmentAlert}</p>}
-          {realtimeClassifications.length === 0 && (
-            <p className="faded">発話が確定すると Bedrock で分類結果が表示されます。</p>
-          )}
-          {realtimeClassifications.length > 0 && (
-            <div className="classification-list">
-              {realtimeClassifications.slice().reverse().map((item) => (
-                <article key={item.index} className="classification-row">
-                  <div className="classification-meta">
-                    <strong>{item.speaker || 'Unknown'}</strong>
-                    <span className="alignment-tag">適合度 {typeof item.alignment === 'number' ? `${item.alignment}%` : '―'}</span>
-                    <span className="category-tag">{item.category}</span>
-                    {item.timestamp && <span className="mono">{item.timestamp}</span>}
-                  </div>
-                  <p>{item.text}</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
         <ControlBar
-          status={status}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
           handRaised={handRaised}
@@ -274,8 +254,8 @@ export function SessionPage() {
 
   return (
     <Layout
-      title="MeetingPolice Live Session"
-      subtitle="管理者が発行した Meeting ID を入力して Vonage でビデオ会議。音声はリアルタイム文字起こしされます。"
+      title="Meeting Session"
+      subtitle=""
     >
       {content}
     </Layout>
