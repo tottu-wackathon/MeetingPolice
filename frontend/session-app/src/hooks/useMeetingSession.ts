@@ -19,6 +19,16 @@ export function useMeetingSession() {
     setStatus('connecting');
     setError(null);
     try {
+      const data = await joinMeeting(meetingId.trim());
+      const videoEnabled = Boolean(data.videoEnabled && data.apiKey && data.sessionId && data.token);
+      setSession({ ...data, videoEnabled });
+      setStatus('connected');
+      return { ...data, videoEnabled };
+    } catch (err) {
+      // Vonage API 取得に失敗した場合は、環境変数の固定セッションか音声のみのフォールバックに切り替える
+      const message = err instanceof Error ? err.message : '参加に失敗しました';
+      setError(message);
+
       if (hasEnvSession) {
         const fallbackSession: MeetingSession = {
           meetingId: meetingId.trim() || 'static-meeting',
@@ -27,20 +37,27 @@ export function useMeetingSession() {
           sessionId: envSessionId!,
           token: envToken!,
           apiKey: envApiKey!,
+          videoEnabled: true,
           participants: [],
         };
         setSession(fallbackSession);
-      } else {
-        const data = await joinMeeting(meetingId.trim());
-        setSession(data);
+        setStatus('connected');
+        return fallbackSession;
       }
+
+      const audioOnly: MeetingSession = {
+        meetingId: meetingId.trim() || 'audio-only',
+        title: 'Audio-only session',
+        status: 'audio-only',
+        sessionId: '',
+        token: '',
+        apiKey: '',
+        videoEnabled: false,
+        participants: [],
+      };
+      setSession(audioOnly);
       setStatus('connected');
-    } catch (err) {
-      setStatus('error');
-      setSession(null);
-      const message = err instanceof Error ? err.message : '参加に失敗しました';
-      setError(message);
-      throw err;
+      return audioOnly;
     }
   };
 
@@ -49,7 +66,8 @@ export function useMeetingSession() {
     setError(null);
     try {
       const data = await createMeetingSession(title, scheduledFor);
-      setSession(data);
+      const videoEnabled = Boolean(data.videoEnabled && data.apiKey && data.sessionId && data.token);
+      setSession({ ...data, videoEnabled });
       setStatus('connected');
     } catch (err) {
       setStatus('error');

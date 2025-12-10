@@ -72,6 +72,7 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
     sessionId: response.session_id,
     token: response.token,
     apiKey: response.api_key,
+    videoEnabled: Boolean(response.api_key && response.session_id && response.token),
     participants: [
       { id: 'me', name: 'You', role: 'host', isSpeaking: false },
       { id: 'cohost', name: 'Co-host', role: 'guest', isSpeaking: true },
@@ -99,6 +100,7 @@ export async function createMeetingSession(title: string, scheduledFor?: string)
     sessionId: response.session_id,
     token: response.token,
     apiKey: response.api_key,
+    videoEnabled: Boolean(response.api_key && response.session_id && response.token),
     participants: [
       { id: 'host', name: 'Host', role: 'host', isSpeaking: false },
     ],

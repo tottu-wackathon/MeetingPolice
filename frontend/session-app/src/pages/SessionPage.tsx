@@ -30,17 +30,20 @@ export function SessionPage() {
 
   const [meetingCode, setMeetingCode] = useState('');
   const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
     if (!meetingCode.trim()) return;
     setJoining(true);
+    setJoinError(null);
     try {
       await joinMeeting(meetingCode);
       navigate(`/session/${meetingCode.trim()}`);
     } catch (err) {
+      const message = err instanceof Error ? err.message : '参加に失敗しました';
       console.error('Failed to join meeting', err);
-      // useMeetingSession が error をセットするのでここではログのみにする
+      setJoinError(message);
     } finally {
       setJoining(false);
     }
@@ -52,13 +55,14 @@ export function SessionPage() {
       if (!meetingId || session || status === 'connecting') return;
       setMeetingCode(meetingId);
       setJoining(true);
+      setJoinError(null);
       try {
         await joinMeeting(meetingId);
       } catch (err) {
         const message = err instanceof Error ? err.message : '参加に失敗しました';
         console.error('Failed to auto-join meeting', err);
         setMeetingCode(meetingId);
-        setError(message);
+        setJoinError(message);
       } finally {
         setJoining(false);
       }
@@ -84,9 +88,9 @@ export function SessionPage() {
           {joining ? '接続中…' : '入室する'}
         </button>
       </form>
-      {error && (
+      {(joinError || error) && (
         <p className="error" role="alert">
-          {error}
+          {joinError || error}
         </p>
       )}
     </section>
@@ -97,106 +101,86 @@ export function SessionPage() {
     navigate('/');
   };
 
-  const hasVideoCreds = Boolean(session?.apiKey && session?.sessionId && session?.token);
+  const videoEnabled = Boolean(session?.videoEnabled && session?.apiKey && session?.sessionId && session?.token);
+  const videoFallbackMessage = !videoEnabled
+    ? 'ビデオ資格情報を取得できなかったため音声のみで参加しています。'
+    : null;
 
   let content = joinSection;
-  try {
-    if (session) {
-      content = (
-        <>
-          <section className="panel meeting-overview">
+
+  if (session) {
+    content = (
+      <>
+        <section className="panel meeting-overview">
+          <div>
+            <p className="label">現在のセッション</p>
+            <h2>{session.title}</h2>
+            <p className="label">Meeting ID</p>
+            <code>{session.meetingId}</code>
+          </div>
+          <div className="session-meta">
             <div>
-              <p className="label">現在のセッション</p>
-              <h2>{session.title}</h2>
-              <p className="label">Meeting ID</p>
-              <code>{session.meetingId}</code>
+              <p className="label">Vonage Session</p>
+              <p>{videoEnabled ? session.sessionId : 'ビデオ未接続'}</p>
             </div>
-            <div className="session-meta">
-              <div>
-                <p className="label">Vonage Session</p>
-                <p>{session.sessionId}</p>
-              </div>
-              <div>
-                <p className="label">Vonage API Key</p>
-                <p>{session.apiKey || '未設定'}</p>
-              </div>
-              <div>
-                <p className="label">ステータス</p>
-                <p className="status-text">{status === 'connected' ? 'ライブ中' : status}</p>
-              </div>
+            <div>
+              <p className="label">Vonage API Key</p>
+              <p>{videoEnabled ? session.apiKey : '未設定（音声のみ）'}</p>
+            </div>
+            <div>
+              <p className="label">ステータス</p>
+              <p className="status-text">{status === 'connected' ? 'ライブ中' : status}</p>
+            </div>
+          </div>
+        </section>
+
+        <VonageStage
+          apiKey={session.apiKey}
+          sessionId={session.sessionId}
+          token={session.token}
+          muted={isMuted}
+          videoOff={isVideoOff}
+          enabled={videoEnabled}
+          fallbackNotice={videoFallbackMessage}
+        />
+
+        <div className="panel-grid">
+          <section className="panel transcript-panel">
+            <div className="panel-header">
+              <h2>リアルタイム文字起こし</h2>
+              <span className="badge">{transcripts.length} 件</span>
+            </div>
+            <div className="transcript-list">
+              {transcripts.length === 0 && (
+                <p className="empty">まだ発話がありません。マイクをオンにして話してください。</p>
+              )}
+              {transcripts.map((entry, index) => (
+                <div key={`${entry.timestamp}-${index}`} className="transcript-item">
+                  <div className="transcript-meta">
+                    <span className="time">{formatTime(new Date(entry.timestamp))}</span>
+                    <span className={`sentiment ${entry.sentiment?.toLowerCase()}`}>
+                      {entry.sentiment}
+                    </span>
+                  </div>
+                  <p className="transcript-text">{entry.transcript || '…'}</p>
+                </div>
+              ))}
             </div>
           </section>
+          <MetricsPanel samples={samples} />
+        </div>
 
-          {hasVideoCreds ? (
-            <VonageStage
-              apiKey={session.apiKey}
-              sessionId={session.sessionId}
-              token={session.token}
-              muted={isMuted}
-              videoOff={isVideoOff}
-            />
-          ) : (
-            <section className="panel video-stage live-video">
-              <div className="panel-header">
-                <h2>Vonage ビデオ</h2>
-                <span className="status-chip error">video unavailable</span>
-              </div>
-              <div className="video-grid">
-                <div className="video-tile speaking">
-                  <div className="video-feed">
-                    <p className="video-placeholder">ビデオ資格情報が不足しています。音声のみご利用ください。</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <div className="panel-grid">
-            <section className="panel transcript-panel">
-              <div className="panel-header">
-                <h2>リアルタイム文字起こし</h2>
-                <span className="badge">{transcripts.length} 件</span>
-              </div>
-              <div className="transcript-list">
-                {transcripts.length === 0 && (
-                  <p className="empty">まだ発話がありません。マイクをオンにして話してください。</p>
-                )}
-                {transcripts.map((entry, index) => (
-                  <div key={`${entry.timestamp}-${index}`} className="transcript-item">
-                    <div className="transcript-meta">
-                      <span className="time">{formatTime(new Date(entry.timestamp))}</span>
-                      <span className={`sentiment ${entry.sentiment?.toLowerCase()}`}>
-                        {entry.sentiment}
-                      </span>
-                    </div>
-                    <p className="transcript-text">{entry.transcript || '…'}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <MetricsPanel samples={samples} />
-          </div>
-
-          <ControlBar
-            status={status}
-            isMuted={isMuted}
-            isVideoOff={isVideoOff}
-            handRaised={handRaised}
-            onToggleMute={toggleMute}
-            onToggleVideo={toggleVideo}
-            onLeave={handleLeave}
-          />
-        </>
-      );
-    }
-  } catch (err) {
-    console.error('Failed to render session UI', err);
-    content = (
-      <section className="panel hero-session">
-        <h2>表示に失敗しました</h2>
-        <p>再読み込みするか、もう一度接続し直してください。</p>
-        {joinSection}
-      </section>
+        <ControlBar
+          status={status}
+          isMuted={isMuted}
+          isVideoOff={isVideoOff}
+          handRaised={handRaised}
+          onToggleMute={toggleMute}
+          onToggleVideo={toggleVideo}
+          onToggleHand={toggleHand}
+          onLeave={handleLeave}
+        />
+      </>
     );
   }
 

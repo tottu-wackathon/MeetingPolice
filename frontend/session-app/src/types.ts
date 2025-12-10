@@ -13,6 +13,7 @@ export type MeetingSession = {
   token: string;
   apiKey: string;
   participants: Participant[];
+  videoEnabled?: boolean;
 };
 
 export type AnalyticsSample = {

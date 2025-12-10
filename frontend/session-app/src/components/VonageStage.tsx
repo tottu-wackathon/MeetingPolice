@@ -8,9 +8,19 @@ type Props = {
   token: string;
   muted?: boolean;
   videoOff?: boolean;
+  enabled?: boolean;
+  fallbackNotice?: string | null;
 };
 
-export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff = false }: Props) {
+export function VonageStage({
+  apiKey,
+  sessionId,
+  token,
+  muted = false,
+  videoOff = false,
+  enabled = true,
+  fallbackNotice,
+}: Props) {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const publisherRef = useRef<any>(null);
@@ -19,6 +29,12 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
   const subscriberContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus('idle');
+      setError(null);
+      return undefined;
+    }
+
     if (!apiKey || !sessionId || !token) {
       setStatus('error');
       setError('Vonage の接続情報が不足しています（音声のみの利用は可能です）');
@@ -109,7 +125,7 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
       publisherRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey, sessionId, token]);
+  }, [apiKey, sessionId, token, enabled]);
 
   useEffect(() => {
     if (publisherRef.current) {
@@ -127,15 +143,18 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
     <section className="panel video-stage live-video">
       <div className="panel-header">
         <h2>Vonage ビデオ</h2>
-        <span className={`status-chip ${status}`}>
-          {status === 'connected' ? 'Live' : status === 'connecting' ? '接続中' : status}
+        <span className={`status-chip ${enabled ? status : 'idle'}`}>
+          {!enabled ? '音声のみ' : status === 'connected' ? 'Live' : status === 'connecting' ? '接続中' : status}
         </span>
       </div>
       <div className="video-grid">
         <div className="video-tile speaking">
           <div className="video-feed" ref={publisherContainerRef}>
-            {!publisherRef.current && status !== 'error' && <p className="video-placeholder">カメラを初期化しています…</p>}
-            {status === 'error' && <p className="video-placeholder">ビデオを開始できませんでした。</p>}
+            {!enabled && <p className="video-placeholder">ビデオは無効化されています。音声のみで参加できます。</p>}
+            {enabled && !publisherRef.current && status !== 'error' && (
+              <p className="video-placeholder">カメラを初期化しています…</p>
+            )}
+            {enabled && status === 'error' && <p className="video-placeholder">ビデオを開始できませんでした。</p>}
           </div>
           <div className="video-meta">
             <div>
@@ -158,9 +177,9 @@ export function VonageStage({ apiKey, sessionId, token, muted = false, videoOff 
           </div>
         </div>
       </div>
-      {error && (
+      {(fallbackNotice || error) && (
         <p className="error" role="alert">
-          {error}
+          {fallbackNotice || error}
         </p>
       )}
     </section>

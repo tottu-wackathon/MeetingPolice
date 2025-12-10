@@ -9,6 +9,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<SessionPage />} />
+        <Route path="/session/:meetingId" element={<SessionPage />} />
         <Route path="/poc" element={<PocPage />} />
         <Route path="/poc_satomin" element={<PocSatominPage />} />
         <Route path="/result" element={<ResultPage />} />
