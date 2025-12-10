@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     vonage_api_secret: str = ""
     vonage_private_key_path: str = "secrets/vonage_private.key"
 
+    # Frontend static Vonage session (optional)
+    vite_vonage_app_id: str | None = None
+    vite_vonage_session_id: str | None = None
+    vite_vonage_token: str | None = None
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_cors(cls, value: str | list[str]) -> list[str] | list[AnyHttpUrl]:
@@ -36,6 +41,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = str(Path(__file__).resolve().parents[1] / ".env")
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 @lru_cache
