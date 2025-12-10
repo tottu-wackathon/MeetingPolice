@@ -759,27 +759,7 @@ export function SessionPage() {
               <span className="status-label">参加人数</span>
               <span className="status-value">{participantCount}</span>
             </div>
-            <div className="status-item">
-              <span className="status-label">マイク</span>
-              <span className="status-value" style={{ color: isMuted ? '#ff4444' : '#00ff00' }}>
-                {isMuted ? 'OFF' : 'ON'}
-              </span>
-            </div>
           </div>
-          {transcripts.length === 0 && session && (
-            <div style={{ 
-              marginTop: '1rem', 
-              padding: '1rem', 
-              background: 'rgba(255, 255, 0, 0.1)', 
-              border: '2px solid #ffff00',
-              borderRadius: '8px',
-              textAlign: 'center'
-            }}>
-              <p style={{ margin: 0, color: '#ffff00' }}>
-                🎤 マイクボタンをクリックしてミュートを解除し、話しかけてください
-              </p>
-            </div>
-          )}
         </section>
       </>
     );
