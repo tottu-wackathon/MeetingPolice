@@ -11,18 +11,17 @@ from backend.config import get_settings
 
 class VonageClient:
     def __init__(self):
+        # Backend では Vonage 資格情報を使わず、常にモック動作にする
         self.settings = get_settings()
-        self.api_key = self.settings.vonage_api_key
-        self.api_secret = self.settings.vonage_api_secret
+        self.api_key = None
+        self.api_secret = None
         self.logger = logging.getLogger(__name__)
-        self.client = (
-            OpenTok(self.api_key, self.api_secret) if self.api_key and self.api_secret else None
-        )
+        self.client = None
 
     def create_session(self, meeting_id: str) -> dict[str, Any]:
         if not self.client:
             session_id = f"session-{meeting_id}"
-            self.logger.info("Vonage client missing credentials, returning mock session_id=%s", session_id)
+            self.logger.info("Vonage backend client disabled; returning mock session_id=%s", session_id)
             return {"session_id": session_id}
         try:
             session = self.client.create_session(media_mode=MediaModes.routed)
@@ -35,7 +34,7 @@ class VonageClient:
     def generate_token(self, session_id: str, ttl_seconds: int = 300) -> str:
         if not self.client:
             token = f"mock-token-{session_id}"
-            self.logger.info("Vonage client missing credentials, returning mock token for session_id=%s", session_id)
+            self.logger.info("Vonage backend client disabled; returning mock token for session_id=%s", session_id)
             return token
         expire_time = int(time.time()) + ttl_seconds
         try:
