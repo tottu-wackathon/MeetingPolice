@@ -88,6 +88,12 @@ export function useTranscripts(
                     const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
                     if (itemKey !== key) return item;
                     
+                    console.log('[useTranscripts] Updating existing item:', {
+                      oldText: item.transcript,
+                      newText: payload.text,
+                      key: itemKey
+                    });
+                    
                     return {
                       meetingId,
                       transcript: payload.text || '',
@@ -121,6 +127,12 @@ export function useTranscripts(
                     // Add additional properties for key management
                     ...(payload as any),
                   };
+                  
+                  console.log('[useTranscripts] Adding new entry:', {
+                    text: newEntry.transcript,
+                    key: key,
+                    totalItems: prev.length + 1
+                  });
                   
                   return [...prev, newEntry].slice(-50);
                 }

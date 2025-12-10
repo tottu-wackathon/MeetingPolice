@@ -224,7 +224,9 @@ class SessionController:
                     text = (getattr(alternative, "transcript", "") or "").strip()
                     if not text:
                         continue
-                        
+                    
+                    self.logger.info(f"Transcribe result: result_id={result_id}, is_partial={is_partial}, text='{text}'")
+                    
                     speaker_label, raw_label = self._speaker_from_items(session_data, alternative)
                     await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, not is_partial, websocket)
                     
@@ -354,20 +356,27 @@ class SessionController:
                     "action": "update",
                     "payload": self._public_payload(entry)
                 })
+
+            # Check if text and speaker are the same (early return like poc_satomin)
+            if entry["text"] == text and entry["speaker"] == speaker_label:
+                if is_final:
+                    await self._finalize_result_streaming(session_data, result_id, websocket)
+                    # Start classification for final results
+                    await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, entry["index"])
+                return
             
-            # Check if text changed
-            if entry["text"] != text:
-                self.logger.info(f"Text update: '{entry['text']}' -> '{text}' (result_id: {result_id})")
-                entry["text"] = text
-                
-                # Send update for text change
-                await websocket.send_json({
-                    "type": "transcript",
-                    "action": "update", 
-                    "payload": self._public_payload(entry)
-                })
+            # Update text if changed
+            self.logger.info(f"Text update: '{entry['text']}' -> '{text}' (result_id: {result_id})")
+            entry["text"] = text
+            
+            # Send update for text change
+            await websocket.send_json({
+                "type": "transcript",
+                "action": "update", 
+                "payload": self._public_payload(entry)
+            })
         
-        # Handle final result
+        # Handle final result (only if not returned early)
         if is_final:
             await self._finalize_result_streaming(session_data, result_id, websocket)
             # Start classification for final results
