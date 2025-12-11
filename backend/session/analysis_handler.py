@@ -181,6 +181,11 @@ class AnalysisHandler:
                     alignment_ai = 50
                     self.logger.info(f"🔧 コメント一致度調整: {result.get('alignment', 0)}% → 50%")
                 
+                # 重要キーワードが含まれる場合の一致度調整
+                alignment_ai = self._adjust_alignment_for_keywords(text, alignment_ai)
+                if alignment_ai != result.get('alignment', 0):
+                    self.logger.info(f"🎯 重要キーワード一致度調整: {result.get('alignment', 0)}% → {alignment_ai}%")
+                
                 result_ai = {
                     "index": index,
                     "text": text,
@@ -278,18 +283,40 @@ class AnalysisHandler:
         if not agenda_keywords:
             return 50  # キーワードがなければデフォルト50%
             
-        # 発言に含まれるキーワードの数をカウント
+        # 重要キーワードの定義（アジェンダに基づく）
+        high_priority_keywords = {
+            "仕事", "面倒", "ワッカソン", "効率", "改善", "課題", "問題", "解決", "検討", "議論"
+        }
+        
+        # 発言に含まれるキーワードの数をカウント（重み付きスコア）
         text_lower = text.lower()
-        matched_count = sum(1 for keyword in agenda_keywords if keyword in text_lower)
+        weighted_score = 0
+        total_possible_score = 0
+        
+        for keyword in agenda_keywords:
+            # 重要キーワードは3倍の重み
+            weight = 3 if keyword in high_priority_keywords else 1
+            total_possible_score += weight
+            
+            if keyword in text_lower:
+                weighted_score += weight
+                self.logger.debug(f"🎯 キーワードマッチ: '{keyword}' (重み: {weight})")
         
         # 一致率を計算（0-100%）
-        if matched_count == 0:
+        if weighted_score == 0:
             return 10  # 全く一致しない場合は10%
-            
-        # マッチ率に基づいて計算（より寛容に）
-        match_ratio = matched_count / len(agenda_keywords)
-        alignment = min(100, int(30 + (match_ratio * 70)))  # 30%〜100%の範囲
         
+        # 重み付きスコアに基づいて計算
+        if total_possible_score > 0:
+            match_ratio = weighted_score / total_possible_score
+            # 重要キーワードが含まれる場合は最低50%を保証
+            has_high_priority = any(keyword in text_lower for keyword in high_priority_keywords)
+            base_score = 50 if has_high_priority else 30
+            alignment = min(100, int(base_score + (match_ratio * (100 - base_score))))
+        else:
+            alignment = 30
+        
+        self.logger.debug(f"🎯 一致度計算: weighted_score={weighted_score}, total={total_possible_score}, ratio={match_ratio:.2f}, alignment={alignment}%")
         return alignment
     
     def _should_skip_analysis(self, text: str, category: str) -> bool:
@@ -407,3 +434,29 @@ class AnalysisHandler:
             for key in keys_to_remove:
                 del self.bedrock_cache[key]
             self.logger.info(f"🧹 Bedrockキャッシュクリーンアップ: {len(keys_to_remove)}件削除, 残り{len(self.bedrock_cache)}件")
+    
+    def _adjust_alignment_for_keywords(self, text: str, current_alignment: int) -> int:
+        """
+        重要キーワードが含まれる場合の一致度調整
+        """
+        high_priority_keywords = {
+            "仕事", "面倒", "ワッカソン", "効率", "改善", "課題", "問題", "解決", "検討", "議論"
+        }
+        
+        text_lower = text.lower()
+        matched_keywords = [kw for kw in high_priority_keywords if kw in text_lower]
+        
+        if matched_keywords:
+            # 重要キーワードが含まれる場合は最低50%を保証
+            adjusted_alignment = max(current_alignment, 50)
+            
+            # 複数の重要キーワードがある場合はさらにボーナス
+            if len(matched_keywords) >= 2:
+                adjusted_alignment = min(100, adjusted_alignment + 20)
+            
+            if adjusted_alignment != current_alignment:
+                self.logger.debug(f"🎯 重要キーワード検出: {matched_keywords} → 一致度調整 {current_alignment}% → {adjusted_alignment}%")
+            
+            return adjusted_alignment
+        
+        return current_alignment

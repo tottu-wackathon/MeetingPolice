@@ -199,6 +199,9 @@ class SessionController:
                         self.logger.warning(f"クリーンアップ中のBedrockタスク失敗: {e}")
                 session_data["pending_bedrock_tasks"].clear()
             
+            # セッション終了時のLED自動OFF（15秒後）
+            await self._schedule_session_end_led_off(meeting_id)
+            
             # クリーンアップ
             if meeting_id in self.session_data:
                 del self.session_data[meeting_id]
@@ -224,3 +227,64 @@ class SessionController:
     async def _check_police_dispatch_trigger(self, session_data: dict, alignment_score: int, text: str, speaker: str, websocket: WebSocket | None) -> None:
         """レガシー: police_dispatchに移行済み"""
         await self.police_dispatch.check_and_trigger(session_data, alignment_score, text, speaker)
+    
+    async def _schedule_session_end_led_off(self, meeting_id: str):
+        """
+        セッション終了時のLED自動OFF（15秒後）
+        警察出動LEDとカスタムLEDの両方をOFFにする
+        """
+        async def delayed_led_off():
+            try:
+                await asyncio.sleep(15)  # 15秒待機
+                
+                self.logger.info(f"🔚 セッション終了15秒後 - LED自動OFF開始: meeting_id={meeting_id}")
+                
+                # Lambda関数でLED OFF
+                from backend.services.lambda_client import LambdaClient
+                lambda_client = LambdaClient()
+                
+                # 警察出動LED OFF
+                police_data = {
+                    "meeting_id": meeting_id,
+                    "speaker": "System",
+                    "alignment_score": 100,
+                    "recent_transcript": "セッション終了",
+                    "timestamp": now_iso()
+                }
+                
+                try:
+                    result = await asyncio.to_thread(lambda_client.invoke_police_dispatch_off, police_data)
+                    self.logger.info(f"🔚 警察出動LED OFF完了: {result}")
+                except Exception as e:
+                    self.logger.warning(f"🔚 警察出動LED OFF失敗: {e}")
+                
+                # カスタムLED OFF（複数デバイス対応）
+                custom_devices = [
+                    "4378-7530",  # ログで確認されたデバイス
+                ]
+                
+                for device_id in custom_devices:
+                    try:
+                        # obniz2 Lambda関数を直接呼び出し
+                        import json
+                        payload = {
+                            "url": f"https://obniz.com/obniz/{device_id}/message?data=off"
+                        }
+                        
+                        response = lambda_client.lambda_client.invoke(
+                            FunctionName="obniz2",
+                            InvocationType="Event",  # 非同期
+                            Payload=json.dumps(payload)
+                        )
+                        
+                        self.logger.info(f"🔚 カスタムLED OFF完了 ({device_id}): Status {response['StatusCode']}")
+                    except Exception as e:
+                        self.logger.warning(f"🔚 カスタムLED OFF失敗 ({device_id}): {e}")
+                
+                self.logger.info(f"🔚 セッション終了LED自動OFF完了: meeting_id={meeting_id}")
+                
+            except Exception as e:
+                self.logger.error(f"🔚 セッション終了LED自動OFF失敗: {e}")
+        
+        # バックグラウンドタスクとして実行
+        asyncio.create_task(delayed_led_off())
