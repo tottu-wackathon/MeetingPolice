@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, HTTPException, UploadFile, File
+from fastapi import APIRouter, WebSocket, HTTPException
 
 from .controller import SessionController
 
@@ -37,21 +37,21 @@ def validate_meeting(meeting_id: str):
 
 
 @router.post("/meetings/{meeting_id}/agenda")
-async def upload_agenda(meeting_id: str, file: UploadFile = File(...)):
+async def upload_agenda(meeting_id: str, payload: dict):
     try:
-        if not file.content_type or not file.content_type.startswith('text/'):
-            raise HTTPException(status_code=400, detail="テキストファイルのみアップロード可能です")
+        agenda_text = payload.get("agenda_text")
+        filename = payload.get("filename", "agenda.txt")
         
-        content = await file.read()
-        agenda_text = content.decode('utf-8')
+        if not agenda_text or not agenda_text.strip():
+            raise HTTPException(status_code=400, detail="アジェンダテキストが空です")
         
         # コントローラーにアジェンダを設定
-        result = controller.set_meeting_agenda(meeting_id, agenda_text)
-        return {"message": "アジェンダが設定されました", "filename": file.filename, **result}
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="ファイルの文字エンコーディングが正しくありません")
+        result = controller.set_meeting_agenda(meeting_id, agenda_text.strip())
+        return {"message": "アジェンダが設定されました", "filename": filename, **result}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"アジェンダ設定エラー: {str(exc)}") from exc
 
 
 @router.websocket("/ws/{meeting_id}")

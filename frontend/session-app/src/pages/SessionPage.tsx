@@ -129,21 +129,39 @@ export function SessionPage() {
     setJoinError(null);
     try {
       // アジェンダファイルがある場合は先にアップロード
-      if (selectedAgenda) {
-        const formData = new FormData();
-        formData.append('file', selectedAgenda);
-        
-        const response = await fetch(`/api/session/meetings/${finalMeetingCode}/agenda`, {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'アジェンダのアップロードに失敗しました');
+      if (selectedAgenda && agendaText) {
+        try {
+          const response = await fetch(`/api/session/meetings/${finalMeetingCode}/agenda`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              agenda_text: agendaText,
+              filename: selectedAgenda.name
+            }),
+          });
+          
+          if (!response.ok) {
+            let errorMessage = 'アジェンダのアップロードに失敗しました';
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.detail || errorMessage;
+            } catch (jsonError) {
+              // JSONパースに失敗した場合はレスポンステキストを取得
+              const errorText = await response.text();
+              console.error('Server returned non-JSON error:', errorText);
+              errorMessage = `サーバーエラー (${response.status}): ${errorText.substring(0, 100)}`;
+            }
+            throw new Error(errorMessage);
+          }
+          
+          const result = await response.json();
+          console.log('Agenda uploaded successfully:', result);
+        } catch (uploadError) {
+          console.error('Agenda upload failed:', uploadError);
+          throw new Error(`アジェンダアップロードエラー: ${uploadError.message}`);
         }
-        
-        console.log('Agenda uploaded successfully');
       }
       
       await joinMeeting(finalMeetingCode);
