@@ -150,7 +150,7 @@ export function SessionPage() {
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
     // Meeting IDが空の場合はデフォルト値を使用
-    const finalMeetingCode = meetingCode.trim() || 'mtg-1765448153';
+    const finalMeetingCode = meetingCode.trim() || 'mtg-1765456066';
     setJoining(true);
     setJoinError(null);
     try {
@@ -241,7 +241,7 @@ export function SessionPage() {
       <form className="meeting-form" onSubmit={handleJoin}>
         <input
           type="text"
-          placeholder="Meeting ID (空の場合: mtg-1765448153)"
+          placeholder="Meeting ID"
           value={meetingCode}
           onChange={(event) => setMeetingCode(event.target.value)}
         />
