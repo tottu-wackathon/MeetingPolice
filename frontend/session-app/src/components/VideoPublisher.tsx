@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
-import type { Publisher } from '@vonage/client-sdk-video';
 
 interface VideoPublisherProps {
-  publisher: Publisher | null;
+  publisher: any;
   isAudioEnabled: boolean;
   isVideoEnabled: boolean;
 }

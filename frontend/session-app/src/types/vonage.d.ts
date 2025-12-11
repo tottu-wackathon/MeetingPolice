@@ -1,40 +1,32 @@
 declare module '@vonage/client-sdk-video' {
-  export interface VonageVideoClient {
-    initSession(sessionId: string): Session;
-    initPublisher(targetElement?: HTMLElement | string, properties?: PublisherOptions): Publisher;
-  }
-
+  export function initSession(apiKey: string, sessionId: string): any;
+  export function initPublisher(targetElement?: HTMLElement | string, properties?: any): any;
+  
   export interface Session {
-    connect(token: string): Promise<void>;
+    connect(token: string, callback?: (error?: any) => void): void;
     disconnect(): void;
-    publish(publisher: Publisher): Promise<void>;
-    unpublish(publisher: Publisher): void;
-    subscribe(stream: Stream, targetElement?: HTMLElement | string, properties?: SubscriberOptions): Subscriber;
-    unsubscribe(subscriber: Subscriber): void;
+    publish(publisher: any, callback?: (error?: any) => void): void;
+    unpublish(publisher: any): void;
+    subscribe(stream: any, targetElement?: HTMLElement | string, properties?: any, callback?: (error?: any, subscriber?: any) => void): any;
+    unsubscribe(subscriber: any): void;
     on(event: string, handler: (...args: any[]) => void): void;
     off(event: string, handler?: (...args: any[]) => void): void;
-    connection?: Connection;
-    streams: Map<string, Stream>;
+    connection?: any;
   }
 
   export interface Publisher {
     publishAudio(enabled: boolean): void;
     publishVideo(enabled: boolean): void;
-    destroy(): void;
     on(event: string, handler: (...args: any[]) => void): void;
     off(event: string, handler?: (...args: any[]) => void): void;
     element?: HTMLElement;
-    stream?: Stream;
   }
 
   export interface Subscriber {
-    subscribeToAudio(enabled: boolean): void;
-    subscribeToVideo(enabled: boolean): void;
-    destroy(): void;
     on(event: string, handler: (...args: any[]) => void): void;
     off(event: string, handler?: (...args: any[]) => void): void;
     element?: HTMLElement;
-    stream: Stream;
+    stream: any;
   }
 
   export interface Stream {
@@ -42,38 +34,6 @@ declare module '@vonage/client-sdk-video' {
     name?: string;
     hasAudio: boolean;
     hasVideo: boolean;
-    connection: Connection;
-    creationTime: number;
+    connection: any;
   }
-
-  export interface Connection {
-    connectionId: string;
-    creationTime: number;
-    data?: string;
-  }
-
-  export interface PublisherOptions {
-    audioSource?: boolean | string;
-    videoSource?: boolean | string;
-    publishAudio?: boolean;
-    publishVideo?: boolean;
-    resolution?: string;
-    frameRate?: number;
-    mirror?: boolean;
-    name?: string;
-  }
-
-  export interface SubscriberOptions {
-    subscribeToAudio?: boolean;
-    subscribeToVideo?: boolean;
-    preferredResolution?: string;
-    preferredFrameRate?: number;
-  }
-
-  export interface VideoError {
-    code: number;
-    message: string;
-  }
-
-  export default function createVonageVideoClient(apiKey: string): VonageVideoClient;
 }

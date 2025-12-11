@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react';
-import type { Subscriber, Stream } from '@vonage/client-sdk-video';
 
 interface VideoSubscriberProps {
-  subscriber: Subscriber;
-  stream: Stream;
+  subscriber: any;
+  stream: any;
 }
 
 export function VideoSubscriber({ subscriber, stream }: VideoSubscriberProps) {

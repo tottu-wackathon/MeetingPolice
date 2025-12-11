@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import createVonageVideoClient, { 
-  type VonageVideoClient, 
-  type Session, 
-  type Publisher, 
-  type Subscriber,
-  type Stream,
-  type VideoError 
-} from '@vonage/client-sdk-video';
+import * as OT from '@vonage/client-sdk-video';
 
 interface UseVonageSessionProps {
   apiKey: string;
@@ -15,18 +8,17 @@ interface UseVonageSessionProps {
 }
 
 export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionProps) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [publisher, setPublisher] = useState<Publisher | null>(null);
-  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
-  const [streams, setStreams] = useState<Stream[]>([]);
+  const [session, setSession] = useState<any>(null);
+  const [publisher, setPublisher] = useState<any>(null);
+  const [subscribers, setSubscribers] = useState<any[]>([]);
+  const [streams, setStreams] = useState<any[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
 
-  const sessionRef = useRef<Session | null>(null);
-  const publisherRef = useRef<Publisher | null>(null);
-  const clientRef = useRef<VonageVideoClient | null>(null);
+  const sessionRef = useRef<any>(null);
+  const publisherRef = useRef<any>(null);
 
   useEffect(() => {
     if (!apiKey || !sessionId || !token) {
@@ -41,12 +33,10 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
     console.log('Token format:', token.startsWith('eyJ') ? 'JWT' : 'Legacy');
 
     try {
-      // Initialize Vonage Video Client
-      const client = createVonageVideoClient(apiKey);
-      clientRef.current = client;
-
-      // Initialize session
-      const newSession = client.initSession(sessionId);
+      console.log('🔍 Available OT methods:', Object.keys(OT));
+      
+      // Initialize session using the correct Vonage SDK method
+      const newSession = OT.initSession(apiKey, sessionId);
       sessionRef.current = newSession;
       setSession(newSession);
 
@@ -59,7 +49,7 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
         try {
           // Initialize publisher
           const publisherElement = document.createElement('div');
-          const newPublisher = client.initPublisher(publisherElement, {
+          const newPublisher = OT.initPublisher(publisherElement, {
             publishAudio: isAudioEnabled,
             publishVideo: isVideoEnabled,
             mirror: true,
@@ -70,8 +60,14 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
           setPublisher(newPublisher);
 
           // Publish to session
-          await newSession.publish(newPublisher);
-          console.log('✅ Publishing started');
+          newSession.publish(newPublisher, (publishError: any) => {
+            if (publishError) {
+              console.error('❌ Publish failed:', publishError);
+              setError(`Publish failed: ${publishError.message}`);
+            } else {
+              console.log('✅ Publishing started');
+            }
+          });
         } catch (publishError) {
           console.error('❌ Publish failed:', publishError);
           setError(`Publish failed: ${publishError}`);
@@ -86,7 +82,7 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
         setStreams([]);
       });
 
-      newSession.on('streamCreated', (event: { stream: Stream }) => {
+      newSession.on('streamCreated', (event: any) => {
         console.log('📺 Stream created:', event.stream.streamId);
         
         setStreams(prev => [...prev, event.stream]);
@@ -97,34 +93,40 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
             event.stream,
             subscriberElement,
             {
-              subscribeToAudio: true,
-              subscribeToVideo: true,
+              insertMode: 'replace',
+              width: '100%',
+              height: '100%',
+            },
+            (subscribeError: any) => {
+              if (subscribeError) {
+                console.error('❌ Subscribe failed:', subscribeError);
+              } else {
+                console.log('✅ Subscribed to stream');
+                setSubscribers(prev => [...prev, subscriber]);
+              }
             }
           );
-
-          console.log('✅ Subscribed to stream');
-          setSubscribers(prev => [...prev, subscriber]);
         } catch (subscribeError) {
           console.error('❌ Subscribe failed:', subscribeError);
         }
       });
 
-      newSession.on('streamDestroyed', (event: { stream: Stream }) => {
+      newSession.on('streamDestroyed', (event: any) => {
         console.log('📺 Stream destroyed:', event.stream.streamId);
         
         setStreams(prev => prev.filter(stream => stream.streamId !== event.stream.streamId));
-        setSubscribers(prev => prev.filter(sub => sub.stream.streamId !== event.stream.streamId));
+        setSubscribers(prev => prev.filter(sub => sub.stream && sub.stream.streamId !== event.stream.streamId));
       });
 
       // Connect to session
-      newSession.connect(token)
-        .then(() => {
-          console.log('✅ Connected to session');
-        })
-        .catch((connectError: VideoError) => {
+      newSession.connect(token, (connectError: any) => {
+        if (connectError) {
           console.error('❌ Connection failed:', connectError);
           setError(`Connection failed: ${connectError.message} (Code: ${connectError.code})`);
-        });
+        } else {
+          console.log('✅ Connected to session');
+        }
+      });
 
     } catch (initError) {
       console.error('❌ Failed to initialize Vonage client:', initError);
@@ -133,14 +135,14 @@ export function useVonageSession({ apiKey, sessionId, token }: UseVonageSessionP
 
     // Cleanup
     return () => {
-      if (publisherRef.current) {
-        publisherRef.current.destroy();
+      if (publisherRef.current && sessionRef.current) {
+        sessionRef.current.unpublish(publisherRef.current);
       }
       if (sessionRef.current) {
         sessionRef.current.disconnect();
       }
     };
-  }, [apiKey, sessionId, token, isAudioEnabled, isVideoEnabled]);
+  }, [apiKey, sessionId, token]);
 
   const toggleAudio = () => {
     if (publisherRef.current) {
