@@ -7,11 +7,13 @@ from pathlib import Path
 
 try:
     from vonage import Vonage, Auth
+    from vonage_video.models import TokenOptions
     VONAGE_AVAILABLE = True
 except ImportError:
     VONAGE_AVAILABLE = False
     Vonage = None
     Auth = None
+    TokenOptions = None
 
 from backend.config import get_settings
 
@@ -134,11 +136,15 @@ class VonageClient:
             # Generate token with Vonage Video Python Server SDK v4.7.2
             expire_time = int(time.time()) + ttl_seconds
             
-            token = self.video_client.generate_client_token(
-                session_id=session_id,
+            # Create TokenOptions object
+            token_options = TokenOptions(
                 role='publisher',  # Can publish and subscribe
                 expire_time=expire_time,
                 data=f'meeting_session_{session_id[:8]}'  # Optional connection data
+            )
+            
+            token = self.video_client.generate_client_token(
+                session_id, token_options
             )
             
             self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
