@@ -182,14 +182,19 @@ class TranscribeStream:
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
-            enable_speaker_partitioning=True,  # Enable speaker diarization
+            show_speaker_label=True,  # Enable speaker diarization
         )
         
-        # Create event handler
+        # Create event handler with speaker detection
         class MyEventHandler(TranscriptResultStreamHandler):
             def __init__(self, output_stream, callback):
                 super().__init__(output_stream)
                 self.callback = callback
+                self.last_final_time = 0
+                self.current_speaker = "spk_0"
+                self.speaker_counter = 0
+                self.last_transcript_length = 0
+                self.silence_threshold = 2.0  # seconds
                 
             async def handle_transcript_event(self, transcript_event: TranscriptEvent):
                 try:
@@ -198,31 +203,48 @@ class TranscribeStream:
                         if result.alternatives:
                             transcript = result.alternatives[0].transcript
                             if transcript and transcript.strip():
-                                # Extract speaker information from speaker partitioning
+                                # Extract speaker information from Transcribe Streaming
                                 speaker_label = None
                                 
-                                # Check for speaker partitioning results
-                                if hasattr(result, 'channel_labels') and result.channel_labels:
-                                    # Get speaker from channel labels
-                                    for channel in result.channel_labels.channels:
-                                        if hasattr(channel, 'channel_label'):
-                                            speaker_label = f"spk_{channel.channel_label}"
-                                            break
-                                
-                                # Alternative: check items for speaker information
-                                if not speaker_label and result.alternatives[0].items:
+                                # Method 1: Check items for speaker labels
+                                if hasattr(result.alternatives[0], 'items') and result.alternatives[0].items:
                                     speaker_counts = {}
                                     for item in result.alternatives[0].items:
-                                        if hasattr(item, 'speaker_label') and item.speaker_label:
-                                            label = item.speaker_label
-                                            speaker_counts[label] = speaker_counts.get(label, 0) + 1
+                                        if hasattr(item, 'speaker') and item.speaker:
+                                            speaker = item.speaker
+                                            speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
                                     
                                     if speaker_counts:
-                                        speaker_label = max(speaker_counts, key=speaker_counts.get)
+                                        # Get the most frequent speaker
+                                        most_frequent_speaker = max(speaker_counts, key=speaker_counts.get)
+                                        speaker_label = f"spk_{most_frequent_speaker}"
                                 
-                                # Fallback: use result-level speaker information
-                                if not speaker_label and hasattr(result, 'speaker_label'):
+                                # Method 2: Check result-level speaker information
+                                if not speaker_label and hasattr(result, 'speaker_label') and result.speaker_label:
                                     speaker_label = result.speaker_label
+                                
+                                # Method 3: Check alternatives for speaker info
+                                if not speaker_label:
+                                    for alt in result.alternatives:
+                                        if hasattr(alt, 'speaker') and alt.speaker:
+                                            speaker_label = f"spk_{alt.speaker}"
+                                            break
+                                
+                                # Fallback: time-based speaker detection
+                                if not speaker_label:
+                                    import time
+                                    current_time = time.time()
+                                    
+                                    if not result.is_partial:
+                                        time_gap = current_time - self.last_final_time
+                                        if time_gap > self.silence_threshold and self.last_final_time > 0:
+                                            self.speaker_counter += 1
+                                            self.current_speaker = f"spk_{self.speaker_counter}"
+                                            logger.info(f"Speaker change detected after {time_gap:.1f}s -> {self.current_speaker}")
+                                        
+                                        self.last_final_time = current_time
+                                    
+                                    speaker_label = self.current_speaker
                                 
                                 logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
                                           transcript, result.is_partial, speaker_label)
@@ -296,8 +318,9 @@ class TranscribeStream:
                 LanguageCode=language_code,
                 MediaEncoding="pcm",
                 MediaSampleRateHertz=16000,
+                ShowSpeakerLabels=True,  # Enable speaker diarization for boto3
+                MaxSpeakerLabels=10,     # Support up to 10 speakers
                 AudioStream=_QueueAudioStream(audio_queue),
-                # Note: Speaker diarization parameters may not be supported in all regions
             )
             
             stream = response.get("TranscriptResultStream")
