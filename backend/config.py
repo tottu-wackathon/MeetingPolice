@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     vonage_application_id: str = ""
     vonage_api_key: str = ""
+    vonage_api_secret: str = ""
     vonage_private_key_path: str = "secrets/vonage_private.key"
 
     # Frontend static Vonage session (optional)
