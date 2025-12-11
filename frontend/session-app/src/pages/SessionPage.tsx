@@ -424,10 +424,11 @@ export function SessionPage() {
             const padding = 8;
             const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
             const bars = recent10.map((item, idx) => {
-              const x = padding + idx * barWidth + barWidth * 0.1;
+              const xCenter = padding + idx * barWidth + barWidth * 0.4; // center of each bar
+              const x = xCenter - (barWidth * 0.8) / 2;
               const height = Math.max(0, Math.min(100, item.alignment));
               const y = 100 - height;
-              return { x, y, height, value: item.alignment };
+              return { x, y, height, value: item.alignment, center: xCenter };
             });
 
             const toPoints = (items: typeof recent10) =>
@@ -435,7 +436,7 @@ export function SessionPage() {
                 const x =
                   items.length === 1
                     ? 50
-                    : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
+                    : padding + idx * barWidth + barWidth * 0.4;
                 const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
                 return { x, y, value: item.alignment };
               });
