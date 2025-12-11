@@ -69,13 +69,17 @@ export function VonageStage({
   };
 
   useEffect(() => {
+    console.log('[VonageStage] useEffect triggered', { enabled, apiKey: apiKey?.substring(0, 8), sessionId: sessionId?.substring(0, 20), token: token?.substring(0, 20) });
+    
     if (!enabled) {
+      console.log('[VonageStage] Not enabled, setting idle');
       setStatus('idle');
       setError(null);
       return undefined;
     }
 
     if (!apiKey || !sessionId || !token) {
+      console.log('[VonageStage] Missing credentials', { hasApiKey: !!apiKey, hasSessionId: !!sessionId, hasToken: !!token });
       setStatus('error');
       setError('Vonage の接続情報が不足しています（音声のみの利用は可能です）');
       return undefined;
@@ -83,17 +87,22 @@ export function VonageStage({
 
     const OTClient: any = OT as any;
     if (!OTClient?.initSession) {
+      console.log('[VonageStage] OpenTok SDK not available');
       setStatus('error');
       setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
     }
 
+    console.log('[VonageStage] Starting Vonage session initialization...');
+
     setStatus('connecting');
     setError(null);
 
     try {
+      console.log('[VonageStage] Creating session with', { apiKey: apiKey.substring(0, 8), sessionId: sessionId.substring(0, 20) });
       const session = OTClient.initSession(apiKey, sessionId);
       sessionRef.current = session;
+      console.log('[VonageStage] Session created successfully');
 
       session.on('sessionConnected', (event: any) => {
         console.log('[Vonage] Session connected successfully');
@@ -207,15 +216,21 @@ export function VonageStage({
       );
       publisherRef.current = publisher;
 
+      console.log('[VonageStage] Attempting to connect with token:', token.substring(0, 20) + '...');
       session.connect(token, (err: any) => {
         if (err) {
+          console.error('[VonageStage] Connection failed:', err);
           setStatus('error');
           setError(err.message || String(err));
           return;
         }
+        console.log('[VonageStage] Connected successfully, publishing...');
         session.publish(publisher, (pubErr: any) => {
           if (pubErr) {
+            console.error('[VonageStage] Publish failed:', pubErr);
             setError(pubErr.message || String(pubErr));
+          } else {
+            console.log('[VonageStage] Published successfully');
           }
         });
       });
