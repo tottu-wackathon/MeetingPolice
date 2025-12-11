@@ -90,9 +90,16 @@ export function VonageStage({
       return undefined;
     }
 
-    const OTClient: any = OT as any;
+    // グローバルなOTオブジェクトを確認
+    const OTClient: any = (window as any).OT || OT;
+    console.log('[VonageStage] Checking OT availability:', { 
+      hasWindowOT: !!(window as any).OT, 
+      hasImportedOT: !!OT, 
+      hasInitSession: !!OTClient?.initSession 
+    });
+    
     if (!OTClient?.initSession) {
-      console.log('[VonageStage] OpenTok SDK not available');
+      console.log('[VonageStage] OpenTok SDK not available - OT object or initSession method missing');
       setStatus('error');
       setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
