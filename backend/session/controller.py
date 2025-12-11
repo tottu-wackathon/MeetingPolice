@@ -178,21 +178,10 @@ class SessionController:
                     speaker_label = "Speaker 1"
                     raw_speaker = "spk_1"
                     
-                    # Use the improved result handling
-                    asyncio.create_task(self._handle_result_streaming(
-                        session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial, websocket
+                    # Integrated transcription and analysis handling
+                    asyncio.create_task(self._handle_integrated_result(
+                        session_data, result_id, speaker_label, raw_speaker, transcript, is_partial, websocket
                     ))
-                    
-                    # Trigger analysis for ALL results (partial and final) for maximum responsiveness
-                    if len(transcript.strip()) >= 3:  # Very low threshold for immediate response
-                        # Use the same result_id for partial analysis to ensure single line
-                        # Create a consistent partial index based on result_id
-                        partial_index = hash(result_id) % 100000  # Consistent index for same result_id
-                        
-                        # Trigger immediate analysis (both partial and final)
-                        asyncio.create_task(self._classify_and_send_realtime(
-                            websocket, session_data["meeting_id"], transcript, speaker_label, partial_index, is_partial=is_partial
-                        ))
                         
                 except Exception as e:
                     self.logger.error("Error processing transcript result: %s", e)
@@ -329,6 +318,41 @@ class SessionController:
             session_data["next_speaker_index"] += 1
             
         return session_data["speaker_labels"][key]
+
+    async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool, websocket: WebSocket) -> None:
+        """Handle transcription result with integrated real-time analysis."""
+        is_final = not is_partial
+        
+        # Handle transcription
+        await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final, websocket)
+        
+        # Integrated real-time analysis
+        if len(text.strip()) >= 3:
+            # Create consistent index for analysis
+            analysis_index = hash(result_id) % 100000
+            
+            # Immediate keyword-based analysis for all results
+            await self._send_immediate_analysis(websocket, session_data["meeting_id"], text, speaker_label, analysis_index, is_partial)
+            
+            # Bedrock analysis triggers:
+            # 1. Sentence completion (ends with punctuation)
+            # 2. Speaker change (final result)
+            should_trigger_bedrock = False
+            bedrock_reason = ""
+            
+            if is_final:
+                # Speaker change - trigger Bedrock for full utterance
+                should_trigger_bedrock = True
+                bedrock_reason = "speaker_change"
+            elif self._is_sentence_complete(text):
+                # Sentence completion - trigger Bedrock for sentence
+                should_trigger_bedrock = True
+                bedrock_reason = "sentence_complete"
+            
+            if should_trigger_bedrock:
+                asyncio.create_task(self._classify_with_bedrock_integrated(
+                    session_data, text, speaker_label, analysis_index, websocket, bedrock_reason
+                ))
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
         """Handle a single transcription result with duplicate prevention."""
@@ -619,6 +643,111 @@ class SessionController:
         else:
             return "コメント"
     
+    async def _send_immediate_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool) -> None:
+        """Send immediate keyword-based analysis."""
+        session_data = self.session_data.get(meeting_id)
+        if not session_data:
+            return
+        
+        # Skip meta information
+        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
+            return
+        
+        # Ultra-fast analysis
+        category = self._fast_guess_category(text)
+        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
+        
+        result = {
+            "index": index,
+            "text": text,
+            "speaker": speaker,
+            "category": category,
+            "alignment": alignment,
+            "method": "keyword",
+            "is_final": not is_partial,
+            "is_partial": is_partial,
+            "ai_status": "AI暫定" if not is_partial else "部分"
+        }
+
+        try:
+            await websocket.send_json({
+                "type": "realtime_classification",
+                "payload": result
+            })
+        except Exception as e:
+            self.logger.error(f"Failed to send immediate analysis: {e}")
+
+    def _is_sentence_complete(self, text: str) -> bool:
+        """Check if sentence is complete (ends with punctuation)."""
+        text = text.strip()
+        if len(text) < 5:
+            return False
+        
+        # Japanese sentence endings
+        sentence_endings = ["。", "！", "？", ".", "!", "?"]
+        return any(text.endswith(ending) for ending in sentence_endings)
+
+    async def _classify_with_bedrock_integrated(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket, reason: str) -> None:
+        """Bedrock analysis with integrated status management."""
+        try:
+            self.logger.info(f"Bedrock分析開始 ({reason}): {speaker} - {text[:30]}...")
+            
+            # Get context
+            context_before = ""
+            context_after = ""
+            for transcript in session_data["transcripts"][-5:]:  # Last 5 for context
+                if transcript.get("index") == index - 1:
+                    context_before = transcript.get("text", "")
+                elif transcript.get("index") == index + 1:
+                    context_after = transcript.get("text", "")
+            
+            # Bedrock analysis
+            segment = {
+                "index": index,
+                "speaker": speaker,
+                "text": text,
+                "context_before": context_before,
+                "context_after": context_after,
+            }
+            
+            classified = await asyncio.to_thread(
+                classify_transcript_segments,
+                [segment],
+                session_data["agenda_text"]
+            )
+            
+            if classified and len(classified) > 0:
+                result = classified[0]
+                category_ai = result.get("category", self._fast_guess_category(text))
+                alignment_ai = result.get("alignment", 0)
+                
+                # Determine AI status based on reason
+                ai_status = "AI確定" if reason == "speaker_change" else "AI暫定"
+                
+                result_ai = {
+                    "index": index,
+                    "text": text,
+                    "speaker": speaker,
+                    "category": category_ai,
+                    "alignment": alignment_ai,
+                    "method": "bedrock",
+                    "is_final": reason == "speaker_change",
+                    "is_partial": False,
+                    "ai_status": ai_status
+                }
+                
+                # Send AI result
+                await websocket.send_json({
+                    "type": "realtime_classification",
+                    "action": "update",
+                    "payload": result_ai
+                })
+                
+                self.logger.info(f"Bedrock分析完了 ({reason}): {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}% ({ai_status})")
+            
+        except Exception as e:
+            self.logger.error(f"Bedrock分析失敗 ({reason}): {e}")
+
     def _fast_calculate_alignment(self, text: str, agenda_text: str) -> int:
         """Ultra-fast alignment calculation."""
         if not agenda_text or len(text) < 5:

@@ -22,7 +22,7 @@ export function SessionPage() {
   } = useMeetingSession();
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
-    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; is_partial?: boolean }>
+    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; is_partial?: boolean; ai_status?: string }>
   >([]);
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
@@ -33,19 +33,19 @@ export function SessionPage() {
     session?.meetingId,
     (payload) => {
       // リアルタイム分析結果を受信
-      const { index, text, speaker, category, alignment, method, is_final, is_partial } = payload;
+      const { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status } = payload;
       
       setRealtimeClassifications((prev) => {
-        // 部分結果の場合、同じ話者の最新の部分結果を更新
+        // 部分結果の場合、同じ話者の最新の部分結果を更新（継続更新）
         if (is_partial) {
           // 同じ話者の最新の部分結果を探す（最後から検索）
           for (let i = prev.length - 1; i >= 0; i--) {
             const item = prev[i];
-            if (item.speaker === speaker && item.is_partial === true) {
-              // 既存の部分結果を更新
+            if (item.speaker === speaker && (item.is_partial === true || item.ai_status !== "AI確定")) {
+              // 既存の部分結果を更新（継続更新）
               const updated = [...prev];
-              updated[i] = { index, text, speaker, category, alignment, method, is_final, is_partial };
-              console.log('[SessionPage] Updated partial result:', { text, speaker, index: i });
+              updated[i] = { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status };
+              console.log('[SessionPage] Updated continuous result:', { text, speaker, ai_status, index: i });
               return updated;
             }
           }
@@ -56,12 +56,12 @@ export function SessionPage() {
         
         if (existingIndex >= 0) {
           const updated = [...prev];
-          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial };
+          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status };
           return updated;
         }
         
         // 新しいエントリを追加
-        return [...prev, { index, text, speaker, category, alignment, method, is_final, is_partial }].slice(-100); // 最新100件に制限
+        return [...prev, { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status }].slice(-100); // 最新100件に制限
       });
     },
     isMuted // ミュート状態を渡す
@@ -653,11 +653,13 @@ export function SessionPage() {
                     
                     // AI分析状態の表示
                     let aiStatus = null;
-                    if (item.method === 'bedrock' && isFinal) {
+                    const statusText = item.ai_status || (isPartial ? "部分" : "AI暫定");
+                    
+                    if (statusText === "AI確定") {
                       aiStatus = <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>;
-                    } else if (item.method === 'keyword' && !isPartial) {
+                    } else if (statusText === "AI暫定") {
                       aiStatus = <span className="pill" style={{ backgroundColor: '#ff9800', color: 'white' }}>AI暫定</span>;
-                    } else if (isPartial) {
+                    } else if (statusText === "部分") {
                       aiStatus = <span className="pill" style={{ backgroundColor: '#9e9e9e', color: 'white' }}>部分</span>;
                     }
 
