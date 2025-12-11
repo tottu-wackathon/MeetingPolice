@@ -541,6 +541,9 @@ export function SessionPage() {
               weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
             );
             const pathDWeighted = buildSmoothPath(pointsWeighted);
+            const indexColor = avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336';
+            const statusText = avgAlignment >= 60 ? '✅ 良好' : avgAlignment >= 40 ? '⚠️ 注意' : '🚨 危険';
+            const statusClass = avgAlignment >= 60 ? 'good' : avgAlignment >= 40 ? 'warn' : 'danger';
 
             return (
               <section className="panel security-index-panel">
@@ -550,13 +553,13 @@ export function SessionPage() {
                 <div className="security-index-content">
                   <div className="index-display">
                     <div className="index-label">会議治安指数</div>
-                    <div className="index-number" style={{
-                      color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336'
-                    }}>
-                      {avgAlignment}%
-                    </div>
-                    <div className="index-status">
-                      {avgAlignment >= 60 ? '✅ 良好' : avgAlignment >= 40 ? '⚠️ 注意' : '🚨 危険'}
+                    <div className="index-metrics">
+                      <div className="index-number" style={{ color: indexColor }}>
+                        {avgAlignment}%
+                      </div>
+                      <div className={`index-status ${statusClass}`}>
+                        {statusText}
+                      </div>
                     </div>
                   </div>
                   <div className="alignment-chart-container">
@@ -676,7 +679,7 @@ export function SessionPage() {
       {showWarning && (
         <div style={{
           position: 'fixed',
-          top: '120px',
+          top: '180px',
           left: '0',
           right: '0',
           margin: '0 auto',
@@ -698,7 +701,7 @@ export function SessionPage() {
       {showPoliceWarning && (
         <div style={{
           position: 'fixed',
-          top: '140px',
+          top: '200px',
           left: '0',
           right: '0',
           margin: '0 auto',
