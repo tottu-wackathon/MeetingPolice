@@ -71,20 +71,39 @@ class SessionController:
         return payload
 
     def create_meeting(self, title: str, scheduled_for: str | None = None) -> dict:
+        self.logger.info("=" * 60)
+        self.logger.info("🎬 CREATE MEETING REQUEST")
+        self.logger.info("=" * 60)
+        self.logger.info("Title: %s", title)
+        self.logger.info("Scheduled for: %s", scheduled_for)
+        
         if not title or not title.strip():
+            self.logger.error("❌ Meeting creation failed: title is required")
             raise ValueError("title is required")
 
+        self.logger.info("📋 Step 1: Creating meeting in database")
         meeting = self.repository.create_meeting(title=title.strip(), scheduled_for=scheduled_for)
-        self.logger.info("Creating meeting meeting_id=%s title=%s", meeting.meeting_id, meeting.title)
+        self.logger.info("✅ Meeting created in database: %s (ID: %s)", meeting.title, meeting.meeting_id)
+        
+        self.logger.info("📋 Step 2: Creating Vonage session")
         session = self.vonage.create_session(meeting.meeting_id)
         session_id = session["session_id"]
+        self.logger.info("✅ Vonage session created: %s...", session_id[:20])
+        
+        self.logger.info("📋 Step 3: Updating meeting with session ID")
         meeting = self.repository.update_meeting(
             meeting.meeting_id, session_id=session_id, status="live"
         )
+        self.logger.info("✅ Meeting updated to live status")
 
+        self.logger.info("📋 Step 4: Generating client token")
         token = self.vonage.generate_token(session_id=session_id)
-        self.logger.info("Vonage credentials issued meeting_id=%s session_id=%s", meeting.meeting_id, session_id)
-        return self._build_session_payload(meeting, session_id, token)
+        self.logger.info("✅ Client token generated")
+        
+        self.logger.info("📋 Step 5: Building response payload")
+        result = self._build_session_payload(meeting, session_id, token)
+        self.logger.info("✅ CREATE MEETING COMPLETED: %s", meeting.meeting_id)
+        return result
 
     def create_session_token(self, meeting_id: str) -> dict:
         self.logger.info("=" * 60)
