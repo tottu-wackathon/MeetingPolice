@@ -69,6 +69,8 @@ class AnalysisHandler:
         # コメント・相槌の場合は一致度を50%に設定
         if category_quick == "コメント":
             alignment_quick = 50  # コメントは50%
+        elif category_quick == "感想・意見":
+            alignment_quick = 40  # 感想・意見は40%（議題に関連する可能性あり）
         elif category_quick == "無関係な雑談":
             alignment_quick = 5  # 無関係な雑談は5%
 
@@ -143,6 +145,11 @@ class AnalysisHandler:
                 result = classified[0]
                 category_ai = result.get("category", _guess_category(text))
                 alignment_ai = result.get("alignment", 0)
+                
+                # コメントカテゴリの場合は最低50%を保証
+                if category_ai == "コメント" and alignment_ai < 50:
+                    alignment_ai = 50
+                    self.logger.info(f"🔧 コメント一致度調整: {result.get('alignment', 0)}% → 50%")
                 
                 result_ai = {
                     "index": index,
