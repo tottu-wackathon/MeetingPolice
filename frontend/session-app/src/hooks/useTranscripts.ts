@@ -1,0 +1,312 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { LiveTranscript } from '../types';
+
+const buildWsUrl = (meetingId: string) => {
+  const apiBase = (import.meta as any).env?.VITE_API_BASE ?? '/api';
+  if (apiBase.startsWith('http')) {
+    const url = new URL(apiBase);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const basePath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
+    return `${url.origin}${basePath}/session/ws/${meetingId}`;
+  }
+  const origin = window.location.origin.replace(/^http/, 'ws');
+  const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
+  return `${origin}${base}/session/ws/${meetingId}`;
+};
+
+export function useTranscripts(
+  meetingId?: string,
+  onClassification?: (payload: any) => void,
+  isMuted?: boolean,
+) {
+  const [transcripts, setTranscripts] = useState<LiveTranscript[]>([]);
+  const isMutedRef = useRef(isMuted);
+
+  // ミュート状態をrefに同期
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+    if (meetingId) {
+      console.log('[useTranscripts] Mute status changed:', isMuted ? 'MUTED' : 'UNMUTED');
+    }
+  }, [isMuted, meetingId]);
+
+  useEffect(() => {
+    if (!meetingId) {
+      console.log('[useTranscripts] No meetingId, clearing transcripts');
+      setTranscripts([]);
+      return;
+    }
+
+    console.log('[useTranscripts] Starting with meetingId:', meetingId);
+
+    let audioContext: AudioContext | null = null;
+    let mediaStream: MediaStream | null = null;
+    let processor: ScriptProcessorNode | null = null;
+    let ws: WebSocket | null = null;
+
+    const wsUrl = buildWsUrl(meetingId);
+    console.log('[useTranscripts] Connecting to WebSocket:', wsUrl);
+    
+    const initializeConnection = async () => {
+      try {
+        // Step 1: Initialize WebSocket
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = async () => {
+          console.log('[useTranscripts] WebSocket connected, starting microphone...');
+          await startMicrophone();
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data?.type === 'realtime_classification') {
+              // Immediate processing for real-time classification
+              onClassification?.(data.payload);
+              return;
+            }
+            
+            if (data?.type === 'transcript') {
+              const payload = data.payload;
+              const action = data.action || 'append';
+              
+              console.log('[useTranscripts] Transcript update:', { 
+                action, 
+                payload, 
+                key: payload.result_id ?? `idx-${payload.index}`,
+                text: payload.text 
+              });
+              
+              setTranscripts((prev) => {
+                const key = payload.result_id ?? `idx-${payload.index}`;
+                
+                // Check for duplicate text in recent entries
+                const isDuplicate = prev.slice(-3).some(item => 
+                  item.transcript === payload.text && 
+                  item.speaker === payload.speaker &&
+                  payload.text && payload.text.length > 10
+                );
+                
+                if (isDuplicate) {
+                  console.log('[useTranscripts] Duplicate text detected, skipping:', payload.text);
+                  return prev;
+                }
+                
+                const updateExisting = (items: LiveTranscript[]) =>
+                  items.map((item) => {
+                    const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
+                    if (itemKey !== key) return item;
+                    
+                    console.log('[useTranscripts] Updating existing item:', {
+                      oldText: item.transcript,
+                      newText: payload.text,
+                      key: itemKey
+                    });
+                    
+                    return {
+                      meetingId,
+                      transcript: payload.text || '',
+                      sentiment: 'NEUTRAL',
+                      timestamp: payload.timestamp || item.timestamp,
+                      speaker: payload.speaker || item.speaker,
+                      isPartial: false,
+                      // Keep additional properties for key management
+                      ...(item as any),
+                      ...payload,
+                    } as LiveTranscript;
+                  });
+                
+                const exists = prev.some((item) => {
+                  const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
+                  return itemKey === key;
+                });
+                
+                if (action === 'append') {
+                  if (exists) {
+                    // If entry with same key already exists, update it instead of adding new
+                    return updateExisting(prev);
+                  }
+                  
+                  // Check if we should update the last entry instead (similar text and speaker)
+                  const lastEntry = prev[prev.length - 1];
+                  if (lastEntry && 
+                      lastEntry.speaker === payload.speaker &&
+                      payload.text && lastEntry.transcript &&
+                      payload.text.length > 5 && lastEntry.transcript.length > 5) {
+                    
+                    const newText = payload.text;
+                    const lastText = lastEntry.transcript;
+                    
+                    // Check if new text is an extension or similar to last text
+                    if (newText.length > lastText.length && 
+                        (newText.includes(lastText.substring(0, Math.min(20, lastText.length))) ||
+                         lastText.includes(newText.substring(0, Math.min(20, newText.length))))) {
+                      
+                      console.log('[useTranscripts] Updating last entry instead of adding new:', {
+                        lastText: lastText,
+                        newText: newText
+                      });
+                      
+                      // Update the last entry
+                      const updatedItems = [...prev];
+                      updatedItems[updatedItems.length - 1] = {
+                        ...lastEntry,
+                        transcript: newText,
+                        timestamp: payload.timestamp || lastEntry.timestamp,
+                        ...(payload as any),
+                      } as LiveTranscript;
+                      
+                      return updatedItems;
+                    }
+                  }
+                  
+                  // Add new entry
+                  const newEntry: LiveTranscript = {
+                    meetingId,
+                    transcript: payload.text || '',
+                    sentiment: 'NEUTRAL',
+                    timestamp: payload.timestamp || new Date().toISOString(),
+                    speaker: payload.speaker || 'Unknown',
+                    isPartial: false,
+                    // Add additional properties for key management
+                    ...(payload as any),
+                  };
+                  
+                  console.log('[useTranscripts] Adding new entry:', {
+                    text: newEntry.transcript,
+                    key: key,
+                    totalItems: prev.length + 1
+                  });
+                  
+                  return [...prev, newEntry].slice(-50);
+                }
+                
+                if (action === 'update' && exists) {
+                  return updateExisting(prev);
+                }
+                
+                return prev;
+              });
+            }
+          } catch (err) {
+            console.warn('Failed to parse transcript payload', err);
+          }
+        };
+        
+        ws.onerror = (err) => {
+          console.error('[useTranscripts] WebSocket error:', err);
+        };
+        
+        ws.onclose = (event) => {
+          console.log('[useTranscripts] WebSocket closed:', event.code, event.reason);
+        };
+
+      } catch (err) {
+        console.error('[useTranscripts] Failed to initialize WebSocket:', err);
+      }
+    };
+
+    const startMicrophone = async () => {
+      try {
+        console.log('[useTranscripts] Requesting microphone access...');
+        
+        mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }, 
+          video: false 
+        });
+        
+        console.log('[useTranscripts] Microphone access granted');
+        
+        audioContext = new AudioContext({ sampleRate: 16000 });
+        
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(2048, 1, 1); // Smaller buffer for faster response
+        
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        let audioSentCount = 0;
+        
+        processor.onaudioprocess = (event) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          
+          // ミュート状態の場合は音声を送信しない
+          if (isMutedRef.current) {
+            // ミュート中であることを定期的にログ出力
+            if (audioSentCount % 200 === 0) {
+              console.log('[useTranscripts] Audio blocked due to mute');
+            }
+            return;
+          }
+          
+          const input = event.inputBuffer.getChannelData(0);
+          
+          // Convert to 16-bit PCM
+          const buffer = new ArrayBuffer(input.length * 2);
+          const view = new DataView(buffer);
+          for (let i = 0; i < input.length; i++) {
+            let sample = input[i];
+            sample = Math.max(-1, Math.min(1, sample));
+            view.setInt16(i * 2, sample * 0x7fff, true);
+          }
+          
+          try {
+            ws.send(buffer);
+            audioSentCount++;
+            
+            if (audioSentCount % 100 === 0) {
+              console.log(`[useTranscripts] Sent audio packet #${audioSentCount} (muted: ${isMutedRef.current})`);
+            }
+          } catch (err) {
+            console.error('[useTranscripts] Failed to send audio data:', err);
+          }
+        };
+        
+        console.log('[useTranscripts] Audio processing started');
+        
+      } catch (err) {
+        console.error('[useTranscripts] Microphone setup failed:', err);
+      }
+    };
+
+    // Start the initialization process
+    initializeConnection();
+
+    return () => {
+      console.log('[useTranscripts] Cleaning up...');
+      
+      if (ws) {
+        ws.close();
+      }
+      if (processor) {
+        processor.disconnect();
+        processor.onaudioprocess = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close();
+      }
+    };
+  }, [meetingId]);
+
+  const latest = useMemo(() => transcripts[0], [transcripts]);
+
+  return { transcripts, latest };
+}

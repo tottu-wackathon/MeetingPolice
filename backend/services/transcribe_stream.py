@@ -198,25 +198,6 @@ class TranscribeStream:
                         if result.alternatives:
                             transcript = result.alternatives[0].transcript
                             if transcript and transcript.strip():
-                                # Debug: Log the complete result structure
-                                logger.info(f"=== TRANSCRIBE RESULT DEBUG ===")
-                                logger.info(f"Result type: {type(result)}")
-                                logger.info(f"Result attributes: {dir(result)}")
-                                logger.info(f"Result is_partial: {result.is_partial}")
-                                
-                                if hasattr(result, 'alternatives') and result.alternatives:
-                                    alt = result.alternatives[0]
-                                    logger.info(f"Alternative type: {type(alt)}")
-                                    logger.info(f"Alternative attributes: {dir(alt)}")
-                                    
-                                    if hasattr(alt, 'items') and alt.items:
-                                        logger.info(f"Items count: {len(alt.items)}")
-                                        for i, item in enumerate(alt.items[:3]):  # Log first 3 items
-                                            logger.info(f"Item {i} type: {type(item)}")
-                                            logger.info(f"Item {i} attributes: {dir(item)}")
-                                            if hasattr(item, 'speaker'):
-                                                logger.info(f"Item {i} speaker: {item.speaker}")
-                                
                                 # Extract speaker information from Transcribe Streaming
                                 speaker_label = None
                                 

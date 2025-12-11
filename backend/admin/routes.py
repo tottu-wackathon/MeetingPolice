@@ -22,21 +22,3 @@ def create_meeting(payload: dict):
 @router.post("/meetings/{meeting_id}/summary")
 def summarize_meeting(meeting_id: str):
     return controller.generate_summary(meeting_id)
-
-
-@router.get("/vonage/status")
-def get_vonage_status():
-    """Get Vonage API connection status."""
-    return controller.get_vonage_status()
-
-
-@router.get("/meetings/with-status")
-def list_meetings_with_status():
-    """List meetings with Vonage connection status."""
-    return controller.list_meetings_with_vonage_status()
-
-
-@router.post("/vonage/test-session")
-def test_vonage_session():
-    """Test Vonage session creation with detailed logging."""
-    return controller.test_session_creation()

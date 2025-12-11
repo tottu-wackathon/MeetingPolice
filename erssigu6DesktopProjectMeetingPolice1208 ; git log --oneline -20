@@ -1,0 +1,10 @@
+[33m6ee1bb3[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mhonban[m[33m, [m[1;31morigin/honban[m[33m)[m Improve JWT token generation and validation
+[33mcf1875f[m Fix Vonage SDK initialization error
+[33m2126e9a[m Update to modern Vonage Client SDK Video API
+[33m39ebda7[m Complete frontend rebuild with @vonage/client-sdk-video@2.32.0
+[33m55da9ae[m Update to Vonage Client SDK Video 2.32.0
+[33mb3d951e[m Fix token format detection: Remove T1== mock detection, add proper token format logging
+[33mf2b2c02[m Add comprehensive frontend debugging logs
+[33m8630625[m Add debug logging for VideoRoom rendering issue
+[33m73d8c9a[m Fix admin Vonage status detection logic
+[33mc17d57e[m Fix Vonage SDK loading by using npm package consistently

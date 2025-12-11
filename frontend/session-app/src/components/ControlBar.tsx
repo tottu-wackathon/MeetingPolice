@@ -1,42 +1,35 @@
-interface ControlBarProps {
-  isAudioEnabled: boolean;
-  isVideoEnabled: boolean;
-  onToggleAudio: () => void;
+type Props = {
+  isMuted: boolean;
+  isVideoOff: boolean;
+  handRaised: boolean;
+  onToggleMute: () => void;
   onToggleVideo: () => void;
+  onToggleHand: () => void;
   onLeave: () => void;
-}
+};
 
 export function ControlBar({
-  isAudioEnabled,
-  isVideoEnabled,
-  onToggleAudio,
+  isMuted,
+  isVideoOff,
+  handRaised,
+  onToggleMute,
   onToggleVideo,
+  onToggleHand,
   onLeave,
-}: ControlBarProps) {
+}: Props) {
   return (
-    <div className="control-bar">
-      <button
-        className={`control-btn ${isAudioEnabled ? 'active' : 'inactive'}`}
-        onClick={onToggleAudio}
-        title={isAudioEnabled ? 'ミュート' : 'ミュート解除'}
-      >
-        {isAudioEnabled ? '🎙️' : '🔇'}
+    <div className="floating-controls">
+      <button type="button" onClick={onToggleMute} className={`icon-btn ${isMuted ? 'off' : ''}`} title={isMuted ? 'ミュート解除' : 'ミュート'}>
+        {isMuted ? '🔇' : '🎙️'}
       </button>
-      
-      <button
-        className={`control-btn ${isVideoEnabled ? 'active' : 'inactive'}`}
-        onClick={onToggleVideo}
-        title={isVideoEnabled ? 'ビデオ停止' : 'ビデオ開始'}
-      >
-        {isVideoEnabled ? '🎥' : '📷'}
+      <button type="button" onClick={onToggleVideo} className={`icon-btn ${isVideoOff ? 'off' : ''}`} title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}>
+        {isVideoOff ? '📷' : '🎥'}
       </button>
-      
-      <button
-        className="control-btn leave-btn"
-        onClick={onLeave}
-        title="退出"
-      >
-        📞
+      <button type="button" onClick={onToggleHand} className={`icon-btn ${handRaised ? 'active' : ''}`} title={handRaised ? '手を下げる' : '手を挙げる'}>
+        ✋
+      </button>
+      <button type="button" className="icon-btn danger" onClick={onLeave} title="退出">
+        🚪
       </button>
     </div>
   );

@@ -1,0 +1,341 @@
+/* ===== フォント読み込み ===== */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&display=swap');
+
+/* ===== 基本設定 ===== */
+:root {
+    font-family: 'Courier New', 'Courier', monospace;
+    color: #00ff00;
+    background: #0a0e27;
+}
+
+body {
+    margin: 0;
+    background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 50%, #0a0e27 100%);
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* 夜の街の背景グリッド */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 255, 0.03) 2px, rgba(0, 255, 255, 0.03) 4px),
+        repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0, 255, 255, 0.03) 2px, rgba(0, 255, 255, 0.03) 4px);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ドット絵風のビル（画面下部） */
+body::after {
+    content: '';
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 150px;
+    background:
+        linear-gradient(90deg,
+            transparent 0%, transparent 10%,
+            #1a1f3a 10%, #1a1f3a 15%,
+            transparent 15%, transparent 25%,
+            #1a1f3a 25%, #1a1f3a 35%,
+            transparent 35%, transparent 40%,
+            #1a1f3a 40%, #1a1f3a 45%,
+            transparent 45%, transparent 60%,
+            #1a1f3a 60%, #1a1f3a 70%,
+            transparent 70%, transparent 85%,
+            #1a1f3a 85%, #1a1f3a 95%,
+            transparent 95%);
+    box-shadow: 0 -20px 40px rgba(0, 255, 255, 0.1);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ===== レイアウト ===== */
+.mp-session-layout {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+    position: relative;
+    z-index: 1;
+}
+
+/* ===== ヘッダー ===== */
+.mp-session-layout header {
+    text-align: center;
+    margin-bottom: 2rem;
+    background: rgba(10, 14, 39, 0.8);
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow:
+        0 0 20px rgba(255, 0, 0, 0.3),
+        0 0 40px rgba(0, 0, 255, 0.3),
+        inset 0 0 60px rgba(0, 255, 255, 0.1);
+    border: 4px solid #00ffff;
+    position: relative;
+    overflow: hidden;
+}
+
+.mp-session-layout header h1 {
+    font-size: 0;
+    margin: 0;
+    padding: 0;
+    height: 120px;
+    width: 100%;
+    background-image: url('/police-header.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    image-rendering: pixelated;
+    display: block;
+}
+
+/* 画像が読み込めない場合のフォールバック */
+.mp-session-layout header h1::before {
+    content: 'MEETING POLICE POC SATOMIN';
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 1.5rem;
+    color: #00ffff;
+    display: block;
+    text-align: center;
+    line-height: 120px;
+    letter-spacing: 0.1em;
+}
+
+/* ===== パネル ===== */
+.panel {
+    background: rgba(26, 31, 58, 0.9);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+    box-shadow:
+        0 0 20px rgba(0, 255, 255, 0.2),
+        inset 0 0 20px rgba(0, 255, 255, 0.05);
+    border: 3px solid #00ffff;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 255, 0.02) 2px, rgba(0, 255, 255, 0.02) 4px),
+        repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0, 255, 255, 0.02) 2px, rgba(0, 255, 255, 0.02) 4px);
+    pointer-events: none;
+    border-radius: 8px;
+}
+
+.panel:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 0 30px rgba(0, 255, 255, 0.4),
+        inset 0 0 30px rgba(0, 255, 255, 0.1);
+    border-color: #00ff00;
+}
+
+.panel h2 {
+    color: #00ffff;
+    text-shadow: 0 0 10px #00ffff;
+    font-family: 'DotGothic16', 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 1.4em;
+    font-weight: bold;
+}
+
+/* ===== ボタン ===== */
+button {
+    border: 3px solid #00ffff;
+    border-radius: 8px;
+    padding: 0.75rem 1.75rem;
+    font-size: 1.1rem;
+    cursor: pointer;
+    font-weight: 700;
+    background: rgba(0, 255, 255, 0.2);
+    color: #00ffff;
+    box-shadow:
+        0 0 10px rgba(0, 255, 255, 0.5),
+        inset 0 0 10px rgba(0, 255, 255, 0.2);
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'Courier New', monospace;
+}
+
+button:hover {
+    background: rgba(0, 255, 0, 0.3);
+    border-color: #00ff00;
+    color: #00ff00;
+    box-shadow:
+        0 0 20px rgba(0, 255, 0, 0.6),
+        inset 0 0 20px rgba(0, 255, 0, 0.3);
+    transform: scale(1.05);
+}
+
+button:active {
+    transform: scale(0.95);
+}
+
+/* ===== 入力フィールド ===== */
+input[type="file"],
+input[type="text"] {
+    background: rgba(10, 14, 39, 0.9);
+    color: #00ffff;
+    border: 2px solid #00ffff;
+}
+
+/* ファイル選択ボタン */
+input[type="file"]::file-selector-button {
+    background: rgba(255, 255, 255, 0.9);
+    color: #0a0e27;
+    border: 3px solid #ffffff;
+    padding: 0.5rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+    font-family: 'Courier New', monospace;
+}
+
+input[type="file"]::file-selector-button:hover {
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.9);
+    transform: scale(1.05);
+}
+
+/* ===== ピル（バッジ） ===== */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 4px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75em;
+    font-weight: 700;
+    background: rgba(255, 0, 255, 0.3);
+    color: #ff00ff;
+    margin: 0 0.5rem;
+    box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+    border: 2px solid #ff00ff;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ===== 文字起こし・分析カード ===== */
+.transcript-item {
+    background: rgba(10, 14, 39, 0.9);
+    color: #00ffff;
+    border: 2px solid #00ffff;
+    border-radius: 12px;
+    padding: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.transcript-item header {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    color: #00ffff;
+    margin-bottom: 0.25rem;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.transcript-item header strong {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.transcript-item p {
+    color: #00ffff;
+    margin: 0;
+    font-size: 0.9em;
+    line-height: 1.4;
+    font-family: 'Courier New', 'Consolas', monospace;
+}
+
+.transcript-feed {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* ===== アジェンダ ===== */
+.agenda-preview,
+.agenda-preview pre {
+    background: rgba(10, 14, 39, 0.9);
+    color: #00ffff;
+    font-family: 'Courier New', 'Consolas', monospace;
+}
+
+/* ===== POC Satominアップロードセクション ===== */
+section.panel.poc-upload {
+    background: rgba(10, 14, 39, 0.95);
+}
+
+.poc-upload * {
+    color: #00ffff;
+}
+
+/* ===== ラベル ===== */
+.label {
+    font-size: 1em;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #00ffff;
+    font-family: 'DotGothic16', 'Courier New', monospace;
+}
+
+/* ===== スクロールバー ===== */
+.history-list,
+.history-preview,
+.history-transcripts {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ===== アニメーション ===== */
+@keyframes pulse {
+
+    0%,
+    100% {
+        transform: translateX(-50%) scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: translateX(-50%) scale(1.05);
+        opacity: 0.9;
+    }
+}
+
+@keyframes neon-flicker {
+
+    0%,
+    100% {
+        text-shadow:
+            0 0 10px #00ffff,
+            0 0 20px #00ffff,
+            0 0 30px #00ffff;
+    }
+
+    50% {
+        text-shadow:
+            0 0 5px #00ffff,
+            0 0 10px #00ffff,
+            0 0 15px #00ffff;
+    }
+}

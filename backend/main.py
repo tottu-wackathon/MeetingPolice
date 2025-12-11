@@ -1,4 +1,3 @@
-import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,24 +6,6 @@ from backend.session.routes import router as session_router
 from backend.admin.routes import router as admin_router
 from backend.poc import router as poc_router
 from backend.poc_satomin import router as poc_satomin_router
-
-# ログ設定
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-
-# アプリケーション固有のロガーレベルを設定
-logging.getLogger("backend.session.controller").setLevel(logging.INFO)
-logging.getLogger("backend.services.vonage_client").setLevel(logging.INFO)
-logging.getLogger("backend.services.repository").setLevel(logging.INFO)
-
-# ルートロガーも設定
-logger = logging.getLogger(__name__)
-logger.info("🚀 MeetingPolice API starting up with detailed logging enabled")
 
 settings = get_settings()
 
