@@ -45,8 +45,20 @@ class VonageClient:
         
         # Initialize Vonage Video API with JWT authentication
         self.logger.info("🔍 Checking initialization requirements...")
-        self.logger.info("VONAGE_AVAILABLE=%s, has_app_id=%s, has_api_key=%s, private_key_loaded=%s", 
-                         VONAGE_AVAILABLE, bool(self.application_id), bool(self.api_key), self._load_private_key())
+        self.logger.info("VONAGE_AVAILABLE=%s, OPENTOK_AVAILABLE=%s, has_app_id=%s, has_api_key=%s, private_key_loaded=%s", 
+                         VONAGE_AVAILABLE, OPENTOK_AVAILABLE, bool(self.application_id), bool(self.api_key), self._load_private_key())
+        
+        # Initialize OpenTok client for token generation (compatible with frontend)
+        if OPENTOK_AVAILABLE and self.api_key:
+            try:
+                # Use API key as secret for OpenTok compatibility
+                self.opentok_client = OpenTok(self.api_key, self.api_key)
+                self.logger.info("✅ OpenTok client initialized for token generation")
+            except Exception as e:
+                self.logger.warning(f"OpenTok client initialization failed: {e}")
+                self.opentok_client = None
+        else:
+            self.opentok_client = None
         
         if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
@@ -159,7 +171,16 @@ class VonageClient:
             return token
         
         try:
-            # Generate token with Vonage Video Python Server SDK v4.7.2
+            # Try OpenTok client first for better compatibility
+            if self.opentok_client:
+                self.logger.info("🔧 Using OpenTok client for token generation (better compatibility)")
+                expire_time = int(time.time()) + ttl_seconds
+                token = self.opentok_client.generate_token(session_id, expire_time=expire_time)
+                self.logger.info("✅ OpenTok token generated successfully")
+                return token
+            
+            # Fallback to Vonage Video Python Server SDK v4.7.2
+            self.logger.info("🔧 Using Vonage Video SDK for token generation")
             expire_time = int(time.time()) + ttl_seconds
             
             # Create TokenOptions object
@@ -172,12 +193,18 @@ class VonageClient:
             
             token = self.video_client.generate_client_token(token_options)
             
+            # トークンがbytesの場合は文字列に変換
+            if isinstance(token, bytes):
+                token = token.decode('utf-8')
+                self.logger.info("🔧 Token was bytes, converted to string")
+            
             self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
-            self.logger.info("🔍 Generated token details: length=%d, starts_with=%s, contains_dots=%s", 
-                           len(token), token[:10] + "..." if len(token) > 10 else token, "." in token)
+            self.logger.info("🔍 Generated token details: length=%d, type=%s, starts_with=%s, contains_dots=%s", 
+                           len(token), type(token).__name__, 
+                           token[:10] + "..." if len(token) > 10 else token, "." in token)
             
             # JWTの場合、ペイロードをデコードして確認
-            if "." in token:
+            if isinstance(token, str) and "." in token:
                 try:
                     import base64
                     import json
