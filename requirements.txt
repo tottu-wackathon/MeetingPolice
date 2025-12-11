@@ -11,5 +11,5 @@ pytest
 pytest-asyncio
 pydantic-settings
 python-multipart
-vonage==3.99.4
+vonage==4.7.2
 requests==2.31.0

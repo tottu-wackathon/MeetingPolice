@@ -7,12 +7,12 @@ from pathlib import Path
 
 try:
     import vonage
-    from vonage.video import Video
+    from vonage_video import VideoClient
     VONAGE_AVAILABLE = True
 except ImportError:
     VONAGE_AVAILABLE = False
     vonage = None
-    Video = None
+    VideoClient = None
 
 from backend.config import get_settings
 
@@ -36,10 +36,10 @@ class VonageClient:
                     application_id=self.application_id,
                     private_key=self.private_key_content
                 )
-                self.video_client = Video(self.client)
+                self.video_client = VideoClient(self.client)
                 self.auth_method = "jwt"
                 self.is_mock_mode = False
-                self.logger.info("✅ Vonage Video API initialized with Python Server SDK and JWT authentication")
+                self.logger.info("✅ Vonage Video API initialized with Python Server SDK v4.7.2 and JWT authentication")
             except Exception as e:
                 self.logger.warning(f"Vonage Video API initialization failed: {e}")
                 self.logger.info("Falling back to mock mode for development")
@@ -90,17 +90,15 @@ class VonageClient:
             return {"session_id": mock_session_id}
         
         try:
-            # Create session with Vonage Video Python Server SDK
-            self.logger.info("🚀 Creating real Vonage session with Python Server SDK...")
+            # Create session with Vonage Video Python Server SDK v4.7.2
+            self.logger.info("🚀 Creating real Vonage session with Python Server SDK v4.7.2...")
             
-            # Create session options
-            session_options = {
-                'media_mode': 'routed',  # Use routed mode for better scalability
-                'archive_mode': 'manual'  # Manual archive mode
-            }
-            
-            response = self.video_client.create_session(session_options)
-            session_id = response['session_id']
+            # Create session with new SDK API
+            session = self.video_client.create_session(
+                media_mode='routed',  # Use routed mode for better scalability
+                archive_mode='manual'  # Manual archive mode
+            )
+            session_id = session.session_id
             
             self.logger.info("✅ Real Vonage session created successfully!")
             self.logger.info("📋 Session details: session_id=%s, meeting_id=%s, media_mode=routed", session_id, meeting_id)
@@ -136,16 +134,15 @@ class VonageClient:
             return token
         
         try:
-            # Generate token with Vonage Video Python Server SDK
+            # Generate token with Vonage Video Python Server SDK v4.7.2
             expire_time = int(time.time()) + ttl_seconds
             
-            token_options = {
-                'role': 'publisher',  # Can publish and subscribe
-                'expire_time': expire_time,
-                'data': f'meeting_session_{session_id[:8]}'  # Optional connection data
-            }
-            
-            token = self.video_client.generate_token(session_id, token_options)
+            token = self.video_client.generate_token(
+                session_id=session_id,
+                role='publisher',  # Can publish and subscribe
+                expire_time=expire_time,
+                data=f'meeting_session_{session_id[:8]}'  # Optional connection data
+            )
             
             self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
             return token
