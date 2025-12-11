@@ -45,30 +45,14 @@ export function SessionPage() {
         // デバッグ用ログ
         console.log('[SessionPage] Realtime classification received:', { index, text: text?.slice(0, 30), speaker, category, alignment, method, is_final });
         
-        // 同じindexとtextの組み合わせで既存エントリを検索（methodに関係なく）
-        const existingIndex = prev.findIndex((item) => 
-          item.index === index && item.text === text
-        );
-        
-        if (existingIndex >= 0) {
-          // 既存エントリを更新（Bedrock結果で上書き、またはより新しい結果で更新）
-          const updated = [...prev];
-          const existing = updated[existingIndex];
-          
-          // Bedrock結果（is_final: true）が来た場合は必ず更新
-          // キーワード結果の場合は、既存がBedrock結果でなければ更新
-          if (is_final || !existing.is_final) {
-            updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
-            console.log('[SessionPage] Updated existing entry at index', existingIndex);
-          }
-          
-          return updated;
-        }
+        // 同じindexの全てのエントリを削除（古いキーワード結果を除去）
+        const filteredPrev = prev.filter(item => item.index !== index);
         
         // 新しいエントリを追加
         const newEntry = { index, text, speaker, category, alignment, method, is_final };
-        console.log('[SessionPage] Added new entry:', newEntry);
-        return [...prev, newEntry];
+        console.log('[SessionPage] Replaced entries for index', index, 'with new entry:', newEntry);
+        
+        return [...filteredPrev, newEntry];
       });
     },
     isMuted // ミュート状態を渡す

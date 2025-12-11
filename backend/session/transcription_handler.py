@@ -368,9 +368,10 @@ class TranscriptionHandler:
                 "payload": self._create_public_payload(entry)
             })
             
-            # 🕒 自動確定タイマーを開始（3秒）
+            # 🕒 自動確定タイマーを開始（文の区切りを考慮）
+            delay = self._calculate_auto_finalize_delay(text)
             entry["auto_finalize_task"] = asyncio.create_task(
-                self._auto_finalize_after_delay(session_data, result_id, 3.0)
+                self._auto_finalize_after_delay(session_data, result_id, delay)
             )
             self.logger.info(f"⏰ 新エントリの自動確定タイマー作成: {result_id}")
         else:
@@ -408,12 +409,23 @@ class TranscriptionHandler:
                 "payload": self._create_public_payload(entry)
             })
             
-            # 🕒 更新されたエントリの自動確定タイマーを再開
+            # 🚨 200字を超えた場合は即座に確定
+            if len(text.strip()) >= 200:
+                self.logger.info(f"📏 200字超過により強制確定: '{text[:50]}...' ({len(text)}文字)")
+                # 既存のタイマーをキャンセル
+                if entry.get("auto_finalize_task") and not entry["auto_finalize_task"].done():
+                    entry["auto_finalize_task"].cancel()
+                # 即座に確定
+                await self._finalize_result(session_data, result_id, auto_finalized=True)
+                return
+            
+            # 🕒 更新されたエントリの自動確定タイマーを再開（文の区切りを考慮）
             if not is_final:
+                delay = self._calculate_auto_finalize_delay(text)
                 entry["auto_finalize_task"] = asyncio.create_task(
-                    self._auto_finalize_after_delay(session_data, result_id, 3.0)
+                    self._auto_finalize_after_delay(session_data, result_id, delay)
                 )
-                self.logger.info(f"⏰ 更新エントリの自動確定タイマー再開: {result_id}")
+                self.logger.info(f"⏰ 更新エントリの自動確定タイマー再開: {result_id} (遅延: {delay}s)")
         
         # 最終結果の処理
         if is_final:
@@ -498,6 +510,26 @@ class TranscriptionHandler:
         self.logger.debug(f"📊 Bedrock送信スキップ: {len(last_sent_text)} → {len(current_text)}文字 (増加率: {len(current_text)/max(len(last_sent_text), 1):.1f}倍)")
         return False
 
+    def _calculate_auto_finalize_delay(self, text: str) -> float:
+        """文の区切りを考慮した自動確定遅延時間を計算"""
+        text_stripped = text.strip()
+        
+        # 200字を超えた場合は即座に確定
+        if len(text_stripped) >= 200:
+            return 1.0  # 1秒で強制確定
+        
+        # 句読点で終わっている場合は短めに確定
+        elif text_stripped.endswith(('。', '！', '？', '.')):
+            return 4.0  # 4秒で確定
+        
+        # 読点で終わっている場合は中程度
+        elif text_stripped.endswith(('、', ',')):
+            return 6.0  # 6秒で確定
+        
+        # 文の途中の場合は長めに待機
+        else:
+            return 10.0  # 10秒で確定
+    
     def _create_public_payload(self, entry: dict) -> dict:
         """WebSocket送信用の公開ペイロードを作成"""
         return {
