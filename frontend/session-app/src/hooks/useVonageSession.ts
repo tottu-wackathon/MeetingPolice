@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import OT from '@opentok/client';
+import type OT from '@opentok/client';
 
 export interface VonageParticipant {
   id: string;
@@ -82,9 +82,15 @@ export function useVonageSession({
       return;
     }
 
+    const OT = window.OT;
+    
     if (!OT?.initSession) {
+      console.error('❌ VONAGE SDK NOT AVAILABLE');
+      console.error('  - window.OT:', !!window.OT);
+      console.error('  - OT.initSession:', !!OT?.initSession);
+      console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
       setStatus('error');
-      setError('Vonage SDK を読み込めませんでした');
+      setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
       return;
     }
 
@@ -223,12 +229,19 @@ export function useVonageSession({
 
     // Connect to session
     console.log('📋 Step 3: Connecting to Vonage Session');
+    console.log('  - Using API Key:', apiKey.substring(0, 8) + '...');
+    console.log('  - Using Session ID:', sessionId.substring(0, 20) + '...');
+    console.log('  - Using Token Length:', token.length);
+    
     newSession.connect(token, (connectError) => {
       if (connectError) {
         console.error('❌ CONNECTION FAILED');
         console.error('  - Error Code:', connectError.code);
         console.error('  - Error Message:', connectError.message);
         console.error('  - Full Error:', connectError);
+        console.error('  - API Key Used:', apiKey.substring(0, 8) + '...');
+        console.error('  - Session ID Used:', sessionId.substring(0, 20) + '...');
+        console.error('  - Token Used:', token.substring(0, 20) + '...');
         
         setStatus('error');
         

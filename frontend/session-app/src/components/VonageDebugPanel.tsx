@@ -51,7 +51,7 @@ export function VonageDebugPanel({ apiKey, sessionId, token, onClose }: VonageDe
       issues.push('セッションIDが未設定');
     } else if (sessionId.includes('mock')) {
       issues.push('セッションIDがモック値');
-    } else if (!sessionId.startsWith('1_MX40')) {
+    } else if (!sessionId.startsWith('1_MX') && !sessionId.startsWith('2_MX')) {
       issues.push('セッションIDの形式が無効');
     }
     

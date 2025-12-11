@@ -1,4 +1,7 @@
-declare module '@opentok/client' {
-  const OT: any;
-  export default OT;
+declare global {
+  interface Window {
+    OT: typeof import('@opentok/client');
+  }
 }
+
+export {};
