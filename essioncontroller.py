@@ -1,0 +1,5 @@
+[33m1dd3efe[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mhonban[m[33m, [m[1;31morigin/honban[m[33m)[m Fix: 警察出動機能の実装完了 - 欠落していた_check_police_dispatch_triggerメソッドを追加、構文エラー修正、Bedrock確定結果のみで判定
+[33m1bed69f[m Fix meetings.json structure for repository compatibility
+[33m1ba9540[m Add production meeting data and update default meeting ID
+[33mbb8a960[m Remove auto-generated files (meetings.json and log file)
+[33m09917cc[m Update default meeting ID to mtg-1765456066

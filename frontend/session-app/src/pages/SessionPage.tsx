@@ -40,14 +40,26 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final } = payload;
       
       setRealtimeClassifications((prev) => {
-        const existingIndex = prev.findIndex((item) => item.index === index);
+        // 同じindexとtextの組み合わせで既存エントリを検索（methodに関係なく）
+        const existingIndex = prev.findIndex((item) => 
+          item.index === index && item.text === text
+        );
         
         if (existingIndex >= 0) {
+          // 既存エントリを更新（Bedrock結果で上書き、またはより新しい結果で更新）
           const updated = [...prev];
-          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
+          const existing = updated[existingIndex];
+          
+          // Bedrock結果（is_final: true）が来た場合は必ず更新
+          // キーワード結果の場合は、既存がBedrock結果でなければ更新
+          if (is_final || !existing.is_final) {
+            updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
+          }
+          
           return updated;
         }
         
+        // 新しいエントリを追加
         return [...prev, { index, text, speaker, category, alignment, method, is_final }];
       });
     },
@@ -610,13 +622,25 @@ export function SessionPage() {
           <div className="analysis-feed">
             {realtimeClassifications
               .filter(item => item.text.length >= 10)
-              .map((item, index) => {
+              // 同じテキストの重複を除去（最新のエントリのみ保持）
+              .filter((item, index, array) => {
+                // 同じテキストの最後のインデックスを見つける
+                let lastIndex = -1;
+                for (let i = array.length - 1; i >= 0; i--) {
+                  if (array[i].text === item.text) {
+                    lastIndex = i;
+                    break;
+                  }
+                }
+                return index === lastIndex;
+              })
+              .map((item, arrayIndex) => {
                 const isFinal = item.is_final === true;
                 const icon = isFinal ? '✅' : '📊';
                 const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
 
                 return (
-                  <article key={index} className="analysis-item">
+                  <article key={`analysis-${item.index}-${item.text.slice(0, 20)}`} className="analysis-item">
                     <header>
                       <strong>{displaySpeaker(item.speaker)}</strong>
                       <span className="pill category-pill">{item.category}</span>
