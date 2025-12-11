@@ -698,7 +698,7 @@ export function SessionPage() {
           </div>
           <div className="analysis-feed">
             {realtimeClassifications
-              .filter(item => item.text && item.text.length >= 10)
+              .filter(item => item.text && item.text.length >= 5) // テスト用に5文字以上に変更
               // 最新の10件のみ表示（パフォーマンス向上）
               .slice(-10)
               .map((item, arrayIndex) => {
@@ -716,7 +716,10 @@ export function SessionPage() {
                       </span>
                       {isFinal && <span className="pill final-pill">AI確定</span>}
                     </header>
-                    <p>{item.text}</p>
+                    <p>{item.text || '[テキストなし]'}</p>
+                    <small style={{color: '#666', fontSize: '0.7em'}}>
+                      DEBUG: text="{item.text}", length={item.text?.length || 0}
+                    </small>
                   </article>
                 );
               })}

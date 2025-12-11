@@ -947,12 +947,12 @@ strong {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   flex: 0 0 auto;
-  min-height: 110px;
+  min-height: 120px;
 }
 
 .analysis-item:hover {
@@ -972,13 +972,17 @@ strong {
 
 .analysis-item p {
   color: #00ffff !important;
-  margin: 0;
+  margin: 0.5rem 0 0 0;
   line-height: 1.5;
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
   max-width: 100%;
   white-space: normal;
+  font-size: 0.9em;
+  flex: 1;
+  display: block !important;
+  visibility: visible !important;
 }
 
 .analysis-count {
