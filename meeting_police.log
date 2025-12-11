@@ -1,0 +1,9 @@
+2025-12-11 21:12:10,923 - backend.session.controller - WARNING - Validation failed missing meeting_id=mtg-1765448153
+2025-12-11 21:12:10,953 - backend.session.controller - INFO - Creating meeting meeting_id=mtg-1765455130 title=Auto-created meeting mtg-1765448153
+2025-12-11 21:12:12,035 - backend.services.vonage_client - ERROR - Vonage session creation failed meeting_id=mtg-1765455130: Failed to create session: Failed to create session, invalid credentials
+2025-12-11 21:12:12,036 - backend.services.vonage_client - ERROR - Vonage credentials: api_key=0db00eea..., api_secret=i5@me5CC4G...
+2025-12-11 21:12:12,038 - backend.session.controller - ERROR - Vonage session creation failed for meeting_id=mtg-1765455130: Failed to create session: Failed to create session, invalid credentials
+2025-12-11 21:12:12,058 - backend.session.controller - INFO - Fallback to audio-only session for meeting_id=mtg-1765455130
+2025-12-11 21:12:12,060 - backend.services.vonage_client - ERROR - Vonage token generation failed session_id=audio-only-mtg-1765455130: Cannot generate token, the session_id audio-only-mtg-1765455130 was not valid
+2025-12-11 21:12:12,061 - backend.session.controller - ERROR - Vonage token generation failed for meeting_id=mtg-1765455130: Cannot generate token, the session_id audio-only-mtg-1765455130 was not valid
+2025-12-11 21:12:12,064 - backend.session.controller - INFO - Fallback to audio-only token for meeting_id=mtg-1765455130

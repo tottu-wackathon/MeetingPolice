@@ -154,6 +154,33 @@ export function SessionPage() {
     setJoining(true);
     setJoinError(null);
     try {
+      // まずミーティングが存在するかチェック、なければ作成
+      try {
+        const validateResponse = await fetch(`/api/session/meetings/${finalMeetingCode}/validate`);
+        if (!validateResponse.ok) {
+          // ミーティングが存在しない場合は作成
+          console.log('Meeting not found, creating new meeting...');
+          const createResponse = await fetch('/api/session/meetings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: `Auto-created meeting ${finalMeetingCode}`,
+              meeting_id: finalMeetingCode
+            }),
+          });
+          
+          if (!createResponse.ok) {
+            throw new Error('ミーティングの作成に失敗しました');
+          }
+          console.log('Meeting created successfully');
+        }
+      } catch (createError) {
+        console.error('Error creating meeting:', createError);
+        // 作成に失敗してもjoinを試行する
+      }
+      
       // アジェンダファイルがある場合は先にアップロード
       if (selectedAgenda) {
         const formData = new FormData();
