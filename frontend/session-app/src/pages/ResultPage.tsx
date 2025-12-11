@@ -18,6 +18,23 @@ export function ResultPage() {
     const [resultData, setResultData] = useState<ResultData | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const animationIdRef = useRef<number | null>(null);
+    const hasInvokedOnRef = useRef(false);
+    const hasInvokedOffRef = useRef(false);
+
+    const invokeObniz = async (url: string) => {
+        try {
+            await fetch('/api/admin/obniz2', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+        } catch (err) {
+            console.error('Failed to invoke obniz2:', err);
+        }
+    };
+
+    const invokeObnizOn = () => invokeObniz('https://obniz.com/obniz/4378-7530/message?data=on');
+    const invokeObnizOff = () => invokeObniz('https://obniz.com/obniz/4378-7530/message?data=off');
 
     useEffect(() => {
         // location.state が undefined でも落ちないようにガード
@@ -41,6 +58,20 @@ export function ResultPage() {
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
     const isSuccess = avgAlignment >= 60;
+
+    // obniz ON/OFF トリガー
+    useEffect(() => {
+        if (isSuccess && !hasInvokedOnRef.current) {
+            hasInvokedOnRef.current = true;
+            invokeObnizOn();
+        }
+        return () => {
+            if (!hasInvokedOffRef.current) {
+                hasInvokedOffRef.current = true;
+                invokeObnizOff();
+            }
+        };
+    }, [isSuccess]);
 
     // キャンバス紙吹雪（よりリアルな揺れ・重なり）
     useEffect(() => {
@@ -297,7 +328,14 @@ export function ResultPage() {
                 <div style={{ textAlign: 'center' }}>
                     <button
                         type="button"
-                        onClick={() => navigate('/')}
+                        onClick={() => {
+                            if (!hasInvokedOffRef.current) {
+                                hasInvokedOffRef.current = true;
+                                invokeObnizOff().finally(() => navigate('/'));
+                            } else {
+                                navigate('/');
+                            }
+                        }}
                         style={{
                             padding: '12px 32px',
                             fontSize: '1.1em',

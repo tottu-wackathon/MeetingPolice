@@ -168,6 +168,111 @@ class LambdaClient:
                 "invocation_timestamp": invocation_timestamp
             }
 
+    def invoke_obniz_custom(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        任意のURLを指定してobniz2 Lambdaを呼び出す
+        """
+        if not payload.get("url"):
+            return {"statusCode": 400, "message": "url is required", "led_status": "ERROR"}
+
+        if not self.lambda_client:
+            self.logger.warning("⚠️ Lambda client not available, returning mock response for custom invocation")
+            return {
+                "statusCode": 200,
+                "message": "Mock custom obniz invocation",
+                "led_status": "MOCK",
+                "payload": payload
+            }
+
+        function_name = "obniz2"
+
+        invocation_start_time = time.time()
+        invocation_timestamp = now_iso()
+
+        try:
+            self.logger.info("=" * 80)
+            self.logger.info("🔔 LAMBDA INVOCATION START - CUSTOM OBNIZ2")
+            self.logger.info("=" * 80)
+            self.logger.info(f"📅 Timestamp: {invocation_timestamp}")
+            self.logger.info(f"🔧 Function Name: {function_name}")
+            self.logger.info(f"🌐 Target URL: {payload['url']}")
+            self.logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
+            self.logger.info(f"🔄 Invocation Type: Event (Asynchronous)")
+            self.logger.info("-" * 80)
+
+            response = self.lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType='Event',
+                Payload=json.dumps(payload)
+            )
+
+            invocation_end_time = time.time()
+            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
+
+            result = {
+                "statusCode": response['StatusCode'],
+                "message": "Custom obniz2 invocation success",
+                "dispatchId": f"custom-{int(time.time())}",
+                "function_name": function_name,
+                "invocation_type": "Event",
+                "led_status": payload.get("url"),
+                "execution_time_ms": execution_time_ms,
+                "invocation_timestamp": invocation_timestamp
+            }
+
+            self.logger.info("✅ LAMBDA INVOCATION SUCCESS - CUSTOM OBNIZ2")
+            self.logger.info(f"📈 Status Code: {response['StatusCode']}")
+            self.logger.info(f"🆔 Dispatch ID: {result['dispatchId']}")
+            self.logger.info(f"⏱️ Execution Time: {execution_time_ms}ms")
+            self.logger.info(f"🔔 URL: {payload.get('url')}")
+            self.logger.info(f"📋 Response Headers: {response.get('ResponseMetadata', {})}")
+            self.logger.info("=" * 80)
+
+            return result
+
+        except ClientError as e:
+            invocation_end_time = time.time()
+            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            self.logger.error("❌ LAMBDA INVOCATION FAILED - CUSTOM OBNIZ2")
+            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
+            self.logger.error(f"🔧 Function Name: {function_name}")
+            self.logger.error(f"⚠️ Error Code: {error_code}")
+            self.logger.error(f"💥 Error Message: {error_message}")
+            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
+            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
+            self.logger.error(f"🔍 Full Error Response: {e.response}")
+            self.logger.error("=" * 80)
+            return {
+                "statusCode": 500,
+                "error": error_code,
+                "message": f"Failed to invoke custom obniz2: {error_message}",
+                "dispatchId": None,
+                "led_status": "ERROR",
+                "execution_time_ms": execution_time_ms,
+                "invocation_timestamp": invocation_timestamp
+            }
+        except Exception as e:
+            invocation_end_time = time.time()
+            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
+            self.logger.exception("❌ UNEXPECTED ERROR - CUSTOM OBNIZ2")
+            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
+            self.logger.error(f"🔧 Function Name: {function_name}")
+            self.logger.error(f"💥 Exception: {str(e)}")
+            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
+            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
+            self.logger.error("=" * 80)
+            return {
+                "statusCode": 500,
+                "error": "UnexpectedError",
+                "message": f"Unexpected error: {str(e)}",
+                "dispatchId": None,
+                "led_status": "ERROR",
+                "execution_time_ms": execution_time_ms,
+                "invocation_timestamp": invocation_timestamp
+            }
+
     def invoke_police_dispatch_off(self, meeting_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         警察出動解除Lambda関数を呼び出す（obniz2でLED消灯）
