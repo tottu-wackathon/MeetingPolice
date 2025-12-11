@@ -252,9 +252,9 @@ class SessionController:
                     speaker_label = self._speaker_name(session_data, raw_speaker)
                     self.logger.info(f"FINAL SPEAKER MAPPING: {raw_speaker} -> {speaker_label}")
                     
-                    # Integrated transcription and analysis handling
+                    # Integrated transcription and analysis handling (use queue instead of websocket)
                     asyncio.create_task(self._handle_integrated_result(
-                        session_data, result_id, speaker_label, raw_speaker, transcript, is_partial, websocket
+                        session_data, result_id, speaker_label, raw_speaker, transcript, is_partial
                     ))
                         
                 except Exception as e:
@@ -340,18 +340,23 @@ class SessionController:
                     await asyncio.sleep(3)
                     phrase = mock_phrases[phrase_index % len(mock_phrases)]
                     
-                    # Send transcript
-                    await websocket.send_json({
+                    # Send transcript to queue
+                    await session_data["queue"].put({
                         "type": "transcript",
-                        "meeting_id": meeting_id,
-                        "timestamp": now_iso(),
-                        "transcript": phrase,
-                        "sentiment": "NEUTRAL",
-                        "is_partial": False,
+                        "action": "append",
+                        "payload": {
+                            "index": phrase_index + 1,
+                            "speaker": "Speaker A" if phrase_index % 2 else "Speaker B",
+                            "raw_speaker": "spk_mock_a" if phrase_index % 2 else "spk_mock_b",
+                            "result_id": f"mock-{phrase_index + 1}",
+                            "text": phrase,
+                            "timestamp": now_iso(),
+                        }
+                    })
                     })
                     
-                    # Send classification
-                    await self._classify_and_send_realtime(websocket, meeting_id, phrase, "Speaker 1", phrase_index + 1)
+                    # Send classification to queue
+                    await self._classify_realtime_hybrid(session_data, phrase, "Speaker A" if phrase_index % 2 else "Speaker B", phrase_index + 1)
                     phrase_index += 1
                     
         except WebSocketDisconnect:
@@ -402,12 +407,12 @@ class SessionController:
         
         return session_data["speaker_labels"][key]
 
-    async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool, websocket: WebSocket) -> None:
+    async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool) -> None:
         """Handle transcription result with poc_satomin-style integrated analysis."""
         is_final = not is_partial
         
-        # Handle transcription first (same as before)
-        await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final, websocket)
+        # Handle transcription first (use queue instead of websocket)
+        await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final)
         
         # poc_satomin-style analysis: only analyze final results
         if is_final:
@@ -417,10 +422,10 @@ class SessionController:
                 unique_index = session_data["next_entry_index"] * 1000 + i
                 # Run hybrid analysis for each split
                 asyncio.create_task(self._classify_realtime_hybrid(
-                    session_data, split_text, speaker_label, unique_index, websocket
+                    session_data, split_text, speaker_label, unique_index
                 ))
 
-    async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
+    async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool) -> None:
         """Handle transcription result with poc_satomin-style speaker stability."""
         
         entry = session_data["pending_results"].get(result_id)
@@ -438,8 +443,8 @@ class SessionController:
             session_data["next_entry_index"] += 1
             session_data["pending_results"][result_id] = entry
             
-            # Send append message
-            await websocket.send_json({
+            # Send append message to queue
+            await session_data["queue"].put({
                 "type": "transcript",
                 "action": "append",
                 "payload": self._public_payload(entry)
@@ -452,7 +457,7 @@ class SessionController:
                 entry["raw_speaker"] = raw_label
                 stable_alias = self._speaker_name(session_data, raw_label)
                 entry["speaker"] = stable_alias
-                await websocket.send_json({
+                await session_data["queue"].put({
                     "type": "transcript",
                     "action": "update",
                     "payload": self._public_payload(entry)
@@ -461,12 +466,12 @@ class SessionController:
             # Check if text and speaker are the same (early return like poc_satomin)
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
-                    await self._finalize_result_streaming(session_data, result_id, websocket)
+                    await self._finalize_result_streaming(session_data, result_id)
                 return
             
             # Update text
             entry["text"] = text
-            await websocket.send_json({
+            await session_data["queue"].put({
                 "type": "transcript",
                 "action": "update",
                 "payload": self._public_payload(entry)
@@ -474,17 +479,17 @@ class SessionController:
         
         # Handle final result
         if is_final:
-            await self._finalize_result_streaming(session_data, result_id, websocket)
+            await self._finalize_result_streaming(session_data, result_id)
 
-    async def _finalize_result_streaming(self, session_data: dict, result_id: str, websocket: WebSocket) -> None:
+    async def _finalize_result_streaming(self, session_data: dict, result_id: str) -> None:
         """Finalize a transcription result."""
         if result_id in session_data["pending_results"]:
             entry = session_data["pending_results"].pop(result_id)
             payload = self._public_payload(entry)
             session_data["transcripts"].append(payload)
             
-            # Send final update
-            await websocket.send_json({
+            # Send final update to queue
+            await session_data["queue"].put({
                 "type": "transcript",
                 "action": "update",
                 "payload": payload
@@ -518,7 +523,7 @@ class SessionController:
         
         return session_data["speaker_labels"][raw_label]
 
-    async def _classify_realtime_hybrid(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
+    async def _classify_realtime_hybrid(self, session_data: dict, text: str, speaker: str, index: int) -> None:
         """poc_satomin-style hybrid real-time classification."""
         # Skip very short texts (same as poc_satomin)
         text_stripped = text.strip()
@@ -559,15 +564,15 @@ class SessionController:
             "is_final": False
         }
 
-        # Send immediate result to client
+        # Send immediate result to queue
         await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
         
         # Step 2: Background Bedrock analysis (same as poc_satomin)
-        task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index, websocket))
+        task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
         session_data["pending_bedrock_tasks"].add(task)
         task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
 
-    async def _classify_with_bedrock_session(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
+    async def _classify_with_bedrock_session(self, session_data: dict, text: str, speaker: str, index: int) -> None:
         """poc_satomin-style Bedrock analysis in background."""
         self.logger.info(f"Bedrock analysis started: {speaker} - {text[:30]}...")
         try:
@@ -616,7 +621,7 @@ class SessionController:
                     "is_final": True
                 }
                 
-                # Send update to client (same as poc_satomin)
+                # Send update to queue (same as poc_satomin)
                 await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_ai})
                 
                 self.logger.info(f"Bedrock analysis completed: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
