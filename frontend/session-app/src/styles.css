@@ -12,7 +12,7 @@ body {
   background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 50%, #0a0e27 100%);
   min-height: 100vh;
   position: relative;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 /* 夜の街の背景 - グリッド */
@@ -39,7 +39,12 @@ body::before {
   position: relative;
   z-index: 1;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow-x: visible;
+}
+
+/* 右端の線が切れないように追加の調整 */
+.mp-session-layout * {
+  box-sizing: border-box;
 }
 
 @media (max-width: 768px) {
@@ -60,14 +65,15 @@ body::before {
     inset 0 0 60px rgba(0, 255, 255, 0.1);
   border: 4px solid #00ffff;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   display: grid;
   grid-template-columns: 1fr 150px;
   grid-template-rows: auto auto;
   gap: 0.75rem 2rem;
   align-items: center;
-  width: 100%;
-  max-width: 100%;
+  width: calc(100% - 8px);
+  max-width: calc(100% - 8px);
+  box-sizing: border-box;
 }
 
 .mp-session-layout header h1 {
@@ -189,10 +195,10 @@ body::before {
   border: 3px solid #00ffff;
   transition: all 0.3s ease;
   position: relative;
-  width: 100%;
-  max-width: 100%;
+  width: calc(100% - 6px);
+  max-width: calc(100% - 6px);
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .panel::before {
@@ -420,10 +426,13 @@ strong {
 .transcript-list {
   max-height: 420px;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 4px;
 }
 
 /* ===== 分類リスト ===== */
@@ -490,6 +499,10 @@ strong {
   padding: 0.3rem 0.4rem !important;
   overflow: visible !important;
   min-height: auto !important;
+  width: calc(100% - 2px) !important;
+  max-width: calc(100% - 2px) !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
 }
 
 .transcript-item header {
@@ -842,7 +855,7 @@ strong {
   margin-bottom: 1rem;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 @media (max-width: 1200px) {
@@ -923,19 +936,21 @@ strong {
   margin-bottom: 1.25rem;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 .analysis-feed {
   max-height: 300px;
   min-height: 140px;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   width: 100%;
   padding-right: 4px;
+  box-sizing: border-box;
 }
 
 .analysis-item {
@@ -944,8 +959,8 @@ strong {
   border-radius: 8px;
   padding: 0.75rem;
   transition: all 0.2s ease;
-  width: 100%;
-  max-width: 100%;
+  width: calc(100% - 2px) !important;
+  max-width: calc(100% - 2px) !important;
   box-sizing: border-box;
   overflow: visible;
   display: flex;
@@ -953,6 +968,7 @@ strong {
   gap: 0.35rem;
   flex: 0 0 auto;
   min-height: 120px;
+  margin: 0 !important;
 }
 
 .analysis-item:hover {
@@ -1060,13 +1076,6 @@ strong {
 }
 
 /* ===== その他 ===== */
-audio {
-  filter: invert(1) hue-rotate(180deg);
-}
-
-.error {
-  color: #b91c1c;
-}
 
 .badge {
   display: inline-flex;
@@ -1083,11 +1092,7 @@ audio {
   box-shadow: 0 0 12px rgba(0, 255, 255, 0.4), inset 0 0 12px rgba(0, 255, 255, 0.15);
 }
 
-.badge.ghost {
-  border-color: rgba(255, 255, 255, 0.4);
-  color: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 0 12px rgba(255, 255, 255, 0.25), inset 0 0 10px rgba(255, 255, 255, 0.05);
-}
+
 
 .panel-grid {
   display: grid;
@@ -1126,28 +1131,9 @@ audio {
   gap: 0.25rem;
 }
 
-.id-chip {
-  display: inline-flex;
-  padding: 0.35rem 0.75rem;
-  border-radius: 6px;
-  border: 2px solid #00ffff;
-  background: rgba(0, 255, 255, 0.08);
-  font-weight: 700;
-}
 
-.share-link {
-  background: rgba(10, 14, 39, 0.9) !important;
-  border: 2px solid #00ffff !important;
-}
 
-.join-card p {
-  margin-top: 0;
-}
 
-.meeting-overview .status-text {
-  font-weight: 700;
-  color: #00ff99 !important;
-}
 
 .status-chip {
   border: 2px solid #00ffff;
@@ -1161,27 +1147,21 @@ audio {
   border-color: #00ff99;
 }
 
-.video-placeholder {
-  color: rgba(255, 255, 255, 0.7) !important;
-  text-align: center;
-  margin: 0.5rem 0;
-}
+
 
 .transcript-panel {
   min-height: 360px;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 
 
 
 
-.empty,
-.faded {
-  color: rgba(255, 255, 255, 0.7) !important;
-}
+
 
 
 
