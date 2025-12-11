@@ -37,7 +37,7 @@ class SessionController:
         self.session_data = {}  # meeting_id -> session data
 
     def _build_session_payload(self, meeting, session_id: str, token: str) -> dict:
-        return {
+        payload = {
             "meeting_id": meeting.meeting_id,
             "title": meeting.title,
             "status": meeting.status,
@@ -45,6 +45,10 @@ class SessionController:
             "token": token,
             "api_key": self.vonage.settings.vonage_api_key,
         }
+        self.logger.info("📦 Session payload built: meeting_id=%s, session_id=%s, has_token=%s, has_api_key=%s", 
+                         payload["meeting_id"], payload["session_id"][:20] + "...", 
+                         bool(payload["token"]), bool(payload["api_key"]))
+        return payload
 
     def create_meeting(self, title: str, scheduled_for: str | None = None) -> dict:
         if not title or not title.strip():

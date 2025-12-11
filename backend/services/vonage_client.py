@@ -96,6 +96,8 @@ class VonageClient:
         self.logger.info("🔄 VonageClient.create_session() called for meeting_id=%s", meeting_id)
         self.logger.info("📊 Vonage client state: is_mock_mode=%s, has_video_client=%s, auth_method=%s", 
                          self.is_mock_mode, bool(self.video_client), getattr(self, 'auth_method', 'unknown'))
+        self.logger.info("🔍 Session creation details: VONAGE_AVAILABLE=%s, app_id_set=%s, api_key_set=%s", 
+                         VONAGE_AVAILABLE, bool(self.application_id), bool(self.api_key))
         
         if not self.video_client or self.is_mock_mode:
             # Generate a proper mock session ID that looks like a real Vonage session ID
@@ -128,6 +130,8 @@ class VonageClient:
 
     def generate_token(self, session_id: str, ttl_seconds: int = 300) -> str:
         self.logger.info("🎫 VonageClient.generate_token() called for session_id=%s, ttl=%d seconds", session_id[:20] + "...", ttl_seconds)
+        self.logger.info("🔍 Token generation details: is_mock_mode=%s, has_video_client=%s", 
+                         self.is_mock_mode, bool(self.video_client))
         
         if not self.video_client or self.is_mock_mode:
             # Generate a proper mock token that looks like a real Vonage token

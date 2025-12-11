@@ -33,15 +33,22 @@ export function VonageStage({
   const participantRef = useRef<Array<{ id: string; name: string; role: 'host' | 'guest' }>>([]);
 
   const upsertParticipant = (participant: { id: string; name: string; role: 'host' | 'guest' }) => {
+    console.log('[Vonage] upsertParticipant called with:', participant);
+    console.log('[Vonage] Current participants before update:', participantRef.current);
+    
     const existingIndex = participantRef.current.findIndex(p => p.id === participant.id);
     if (existingIndex >= 0) {
       // Update existing participant
+      console.log('[Vonage] Updating existing participant at index:', existingIndex);
       participantRef.current[existingIndex] = participant;
     } else {
       // Add new participant
+      console.log('[Vonage] Adding new participant');
       participantRef.current = [...participantRef.current, participant];
     }
+    
     console.log('[Vonage] Updated participants:', participantRef.current);
+    console.log('[Vonage] Calling onParticipantsChange with:', participantRef.current);
     onParticipantsChange?.(participantRef.current);
   };
 
@@ -121,14 +128,17 @@ export function VonageStage({
 
       session.on('sessionConnected', (event: any) => {
         console.log('[Vonage] Session connected successfully');
+        console.log('[Vonage] sessionConnected event:', event);
         const info = {
           sessionId: session.sessionId,
           connectionId: session.connection?.connectionId,
           connectionCount: session.connectionCount || 0,
           capabilities: session.capabilities || {},
-          isConnected: session.isConnected()
+          isConnected: session.isConnected(),
+          connections: session.connections ? Object.keys(session.connections).length : 0
         };
         console.log('[Vonage] Session details:', info);
+        console.log('[Vonage] All connections:', session.connections);
         setSessionInfo(info);
         setStatus('connected');
       });
@@ -139,6 +149,7 @@ export function VonageStage({
       });
 
       session.on('connectionCreated', (event: any) => {
+        console.log('[Vonage] connectionCreated event triggered:', event);
         const connection = event.connection;
         const isLocal = connection?.connectionId === session.connection?.connectionId;
         const label = connectionLabel(connection, isLocal ? 'host' : 'guest');
@@ -148,21 +159,25 @@ export function VonageStage({
           role: isLocal ? 'host' : 'guest',
         } as const;
         
-        console.log('[Vonage] Connection created:', {
+        console.log('[Vonage] Connection created details:', {
           participant,
           isLocal,
           connectionId: connection?.connectionId,
           connectionData: connection?.data,
-          totalConnections: session.connectionCount
+          totalConnections: session.connectionCount,
+          sessionConnectionId: session.connection?.connectionId,
+          allConnections: session.connections ? Object.keys(session.connections) : []
         });
         
         // セッション情報を更新
         setSessionInfo((prev: any) => ({
           ...prev,
           connectionCount: session.connectionCount,
-          totalConnections: session.connectionCount
+          totalConnections: session.connectionCount,
+          connections: session.connections ? Object.keys(session.connections).length : 0
         }));
         
+        console.log('[Vonage] Adding participant to list:', participant);
         upsertParticipant(participant);
       });
 

@@ -340,6 +340,9 @@ export function SessionPage() {
           <div className="panel-header">
             <h2>参加者</h2>
             <span className="badge">{participants.length}名</span>
+            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>
+              Debug: {JSON.stringify(participants.map(p => ({ id: p.id, name: p.name, role: p.role })))}
+            </div>
           </div>
           <div className="participants-grid">
             {participants.map((p) => (
@@ -424,9 +427,22 @@ export function SessionPage() {
           </div>
         </section>
 
-        {/* 隠れたVonage初期化 */}
+        {/* Vonage初期化（デバッグ用に表示） */}
         {session.videoEnabled && (
-          <div style={{ display: 'none' }}>
+          <div style={{ 
+            position: 'fixed', 
+            top: '10px', 
+            right: '10px', 
+            width: '300px', 
+            height: '200px', 
+            backgroundColor: 'rgba(0,0,0,0.8)', 
+            border: '2px solid #00ffff', 
+            zIndex: 9999,
+            padding: '10px'
+          }}>
+            <div style={{ color: '#00ffff', fontSize: '12px', marginBottom: '10px' }}>
+              Vonage Debug Panel
+            </div>
             <VonageStage
               apiKey={session.apiKey}
               sessionId={session.sessionId}
@@ -435,13 +451,23 @@ export function SessionPage() {
               videoOff={isVideoOff}
               enabled={true}
               onParticipantsChange={(vonageParticipants) => {
-                console.log('[SessionPage] Vonage participants updated:', vonageParticipants);
+                console.log('[SessionPage] onParticipantsChange callback triggered');
+                console.log('[SessionPage] Vonage participants received:', vonageParticipants);
+                console.log('[SessionPage] Current participants state before update:', participants);
+                
                 const updatedParticipants = [
                   { id: 'local', name: 'You', role: 'host' as const, isSpeaking: false },
                   ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
                 ];
-                console.log('[SessionPage] Setting participants:', updatedParticipants);
+                
+                console.log('[SessionPage] Updated participants to set:', updatedParticipants);
+                console.log('[SessionPage] Participant count change:', participants.length, '->', updatedParticipants.length);
                 setParticipants(updatedParticipants);
+                
+                // 状態更新後の確認用（次のレンダリングで確認）
+                setTimeout(() => {
+                  console.log('[SessionPage] Participants state after update (async check):', participants);
+                }, 100);
               }}
             />
           </div>
