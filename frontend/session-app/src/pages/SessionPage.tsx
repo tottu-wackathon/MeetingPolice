@@ -463,6 +463,143 @@ export function SessionPage() {
     };
   }, []);
 
+  const renderSecurityIndexPanel = () => {
+    // Bedrockで確定した結果のみを使用（is_final: true）
+    const validItems = realtimeClassifications.filter(item => 
+      item.text.length >= 10 && item.is_final === true
+    );
+
+    const recent10 = validItems.slice(-10);
+    const hasData = recent10.length > 0;
+
+    const padding = 8;
+    const barWidth = hasData ? (100 - padding * 2) / recent10.length : 0;
+    const bars = hasData
+      ? recent10.map((item, idx) => {
+          const xCenter = padding + idx * barWidth + barWidth * 0.4;
+          const x = xCenter - (barWidth * 0.8) / 2;
+          const height = Math.max(0, Math.min(100, item.alignment));
+          const y = 100 - height;
+          return { x, y, height, value: item.alignment, center: xCenter };
+        })
+      : [];
+
+    const toPoints = (items: Array<{ alignment: number }>) =>
+      items.map((item, idx) => {
+        const x =
+          items.length === 1
+            ? 50
+            : padding + idx * barWidth + barWidth * 0.4;
+        const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
+        return { x, y, value: item.alignment };
+      });
+
+    const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
+      if (pts.length === 0) return '';
+      if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+      let d = `M ${pts[0].x},${pts[0].y}`;
+      for (let i = 1; i < pts.length; i++) {
+        const prev = pts[i - 1];
+        const curr = pts[i];
+        const mx = (prev.x + curr.x) / 2;
+        const my = (prev.y + curr.y) / 2;
+        d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
+      }
+      d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
+      return d;
+    };
+
+    const weightsForRecent = hasData ? recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1)) : [];
+    const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
+    const avgAlignment = hasData
+      ? Math.round(
+          recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+        )
+      : 100;
+
+    const weightedAvgPoints = hasData
+      ? (() => {
+          const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+          const cumulativeWeights: number[] = [];
+          let sumW = 0;
+          weights.forEach((w) => {
+            sumW += w;
+            cumulativeWeights.push(sumW);
+          });
+          let cum = 0;
+          return recent10.map((item, idx) => {
+            cum += item.alignment * weights[idx];
+            const alignment = cum / (cumulativeWeights[idx] || 1);
+            return { alignment };
+          });
+        })()
+      : [];
+
+    const pointsWeighted = hasData ? toPoints(weightedAvgPoints) : [];
+    const pathDWeighted = hasData ? buildSmoothPath(pointsWeighted) : '';
+    const indexColor = hasData ? (avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336') : '#00e676';
+    const statusText = hasData ? (avgAlignment >= 60 ? '✅ 良好' : avgAlignment >= 40 ? '⚠️ 注意' : '🚨 危険') : '🟢 スタンバイ';
+    const statusClass = hasData ? (avgAlignment >= 60 ? 'good' : avgAlignment >= 40 ? 'warn' : 'danger') : 'standby';
+
+    return (
+      <section className="panel security-index-panel">
+        <div className="panel-header">
+          <h2>🚨 会議治安指数</h2>
+          {!hasData && <span className="pill slim">初回の発話待ち</span>}
+        </div>
+        <div className="security-index-content">
+          <div className="index-display">
+            <div className="index-metrics">
+              <div className="index-number" style={{ color: indexColor }}>
+                {avgAlignment}%
+              </div>
+              <div className={`index-status ${statusClass}`}>
+                {statusText}
+              </div>
+            </div>
+            {!hasData && (
+              <p className="standby-hint">グラフは初回の発話を受信したら更新します。現在は100%でスタンバイ中です。</p>
+            )}
+          </div>
+          <div className="alignment-chart-container">
+            <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
+                  <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
+                </linearGradient>
+              </defs>
+              {/* 警告・警察ライン */}
+              <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
+              <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
+              {/* 棒グラフ */}
+              {bars.map((b, idx) => {
+                const barColor = b.value <= 30 ? '#f44336' : b.value <= 50 ? '#ff9800' : 'rgba(0,255,255,0.35)';
+                return (
+                  <rect
+                    key={idx}
+                    x={b.x}
+                    y={b.y}
+                    width={barWidth * 0.8}
+                    height={b.height}
+                    fill={barColor}
+                    rx="1.5"
+                  />
+                );
+              })}
+              {/* ライン */}
+              {hasData && <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" />}
+              {/* ポイント */}
+              {hasData && pointsWeighted.map((p, idx) => (
+                <circle key={idx} cx={p.x} cy={p.y} r={2.2} fill="#00ffff" stroke="#0a0e27" strokeWidth="0.7" />
+              ))}
+            </svg>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   let content = joinSection;
 
   if (session) {
@@ -512,135 +649,7 @@ export function SessionPage() {
             </div>
           </section>
 
-          {realtimeClassifications.length > 0 && (() => {
-            // Bedrockで確定した結果のみを使用（is_final: true）
-            const validItems = realtimeClassifications.filter(item => 
-              item.text.length >= 10 && item.is_final === true
-            );
-            if (validItems.length === 0) return null;
-
-            const recent10 = validItems.slice(-10);
-            const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-            const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
-            const avgAlignment = recent10.length
-              ? Math.round(
-                recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
-              )
-              : 0;
-
-            const padding = 8;
-            const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
-            const bars = recent10.map((item, idx) => {
-              const xCenter = padding + idx * barWidth + barWidth * 0.4; // center of each bar
-              const x = xCenter - (barWidth * 0.8) / 2;
-              const height = Math.max(0, Math.min(100, item.alignment));
-              const y = 100 - height;
-              return { x, y, height, value: item.alignment, center: xCenter };
-            });
-
-            const toPoints = (items: typeof recent10) =>
-              items.map((item, idx) => {
-                const x =
-                  items.length === 1
-                    ? 50
-                    : padding + idx * barWidth + barWidth * 0.4;
-                const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
-                return { x, y, value: item.alignment };
-              });
-
-            const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
-              if (pts.length === 0) return '';
-              if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-              let d = `M ${pts[0].x},${pts[0].y}`;
-              for (let i = 1; i < pts.length; i++) {
-                const prev = pts[i - 1];
-                const curr = pts[i];
-                const mx = (prev.x + curr.x) / 2;
-                const my = (prev.y + curr.y) / 2;
-                d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
-              }
-              d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
-              return d;
-            };
-
-            const weightedAvgPoints = (() => {
-              const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-              const cumulativeWeights: number[] = [];
-              let sumW = 0;
-              weights.forEach((w) => {
-                sumW += w;
-                cumulativeWeights.push(sumW);
-              });
-              let cum = 0;
-              return recent10.map((item, idx) => {
-                cum += item.alignment * weights[idx];
-                const avg = cum / (cumulativeWeights[idx] || 1);
-                return { alignment: avg };
-              });
-            })();
-
-            const pointsWeighted = toPoints(
-              weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
-            );
-            const pathDWeighted = buildSmoothPath(pointsWeighted);
-            const indexColor = avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336';
-            const statusText = avgAlignment >= 60 ? '✅ 良好' : avgAlignment >= 40 ? '⚠️ 注意' : '🚨 危険';
-            const statusClass = avgAlignment >= 60 ? 'good' : avgAlignment >= 40 ? 'warn' : 'danger';
-
-            return (
-              <section className="panel security-index-panel">
-                <div className="panel-header">
-                  <h2>🚨 会議治安指数</h2>
-                </div>
-                <div className="security-index-content">
-                  <div className="index-display">
-                    <div className="index-metrics">
-                      <div className="index-number" style={{ color: indexColor }}>
-                        {avgAlignment}%
-                      </div>
-                      <div className={`index-status ${statusClass}`}>
-                        {statusText}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="alignment-chart-container">
-                    <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
-                          <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
-                        </linearGradient>
-                      </defs>
-                      {/* 警告・警察ライン */}
-                      <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
-                      <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
-                      {/* 棒グラフ */}
-                      {bars.map((b, idx) => {
-                        const barColor = b.value <= 30 ? '#f44336' : b.value <= 50 ? '#ff9800' : 'rgba(0,255,255,0.35)';
-                        return (
-                          <rect
-                            key={idx}
-                            x={b.x}
-                            y={b.y}
-                            width={barWidth * 0.8}
-                            height={b.height}
-                            fill={barColor}
-                            rx="1.5"
-                          />
-                        );
-                      })}
-                      {/* ライン */}
-                      <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" />
-                      {/* ポイント */}
-                      {pointsWeighted.map((p, idx) => (
-                        <circle key={idx} cx={p.x} cy={p.y} r={2.2} fill="#00ffff" stroke="#0a0e27" strokeWidth="0.7" />
-                      ))}
-                    </svg>
-                  </div>
-                </div>
-              </section>
-            );
-          })()}
+          {renderSecurityIndexPanel()}
         </div>
 
         {/* 下段: 分析結果と話者識別 */}

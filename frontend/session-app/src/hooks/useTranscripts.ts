@@ -63,72 +63,92 @@ export function useTranscripts(
           console.log('[useTranscripts] Received message:', event.data);
           try {
             const payload = JSON.parse(event.data);
+            const messageType = payload?.type;
+            const action = payload?.action;
             console.log('[useTranscripts] Parsed payload:', payload);
             
-            if (payload?.type === 'realtime_classification') {
+            if (messageType === 'realtime_classification') {
               console.log('[useTranscripts] Classification payload:', payload.payload);
               onClassification?.(payload.payload);
               return;
             }
             
             // 警察出動通知の処理
-            if (payload?.type === 'police_dispatch') {
+            if (messageType === 'police_dispatch') {
               console.log('🚨 [useTranscripts] Police dispatch notification received:', payload);
               onPoliceDispatch?.(payload);
               return;
             }
             
             // アライメント警告の処理
-            if (payload?.type === 'alignment_warning') {
+            if (messageType === 'alignment_warning') {
               console.log('⚠️ [useTranscripts] Alignment warning received:', payload);
               onAlignmentWarning?.(payload);
               return;
             }
             
             // 警察出動解除通知の処理
-            if (payload?.type === 'police_dispatch_off') {
+            if (messageType === 'police_dispatch_off') {
               console.log('🟢 [useTranscripts] Police dispatch OFF notification received:', payload);
               onPoliceDispatch?.(payload);  // 同じコールバックを使用して解除通知も処理
               return;
             }
             
-            // Only process if there's actual transcript content
-            if (payload.transcript && payload.transcript.trim()) {
-              const entry: LiveTranscript = {
-                meetingId,
-                transcript: payload.transcript.trim(),
-                sentiment: payload.sentiment ?? 'NEUTRAL',
-                timestamp: payload.timestamp ?? new Date().toISOString(),
-                speaker: payload.speaker,
-                isPartial: payload.is_partial,
-                index: payload.index,
-              };
-              
-              const action = payload.action || 'new';
-              console.log(`[useTranscripts] Processing transcript (${action}):`, entry);
-              
-              setTranscripts((prev) => {
-                if (action === 'update' && entry.index !== undefined) {
-                  // Update existing entry with same index
+            // transcriptメッセージを抽出（queue経由のpayloadラップにも対応）
+            const transcriptPayload = messageType === 'transcript'
+              ? payload.payload ?? {}
+              : (payload.payload && typeof payload.payload === 'object' ? payload.payload : payload);
+            
+            const transcriptText = (transcriptPayload?.transcript ?? transcriptPayload?.text ?? '').trim();
+            if (!transcriptText) {
+              if (messageType === 'transcript') {
+                console.log('[useTranscripts] Transcript message without text, skipping');
+              }
+              return;
+            }
+
+            const resolvedAction = transcriptPayload.action || action || 'new';
+            const isFinalize = resolvedAction === 'finalize' || resolvedAction === 'final';
+            const entry: LiveTranscript = {
+              meetingId,
+              transcript: transcriptText,
+              sentiment: transcriptPayload.sentiment ?? 'NEUTRAL',
+              timestamp: transcriptPayload.timestamp ?? new Date().toISOString(),
+              speaker: transcriptPayload.speaker ?? transcriptPayload.speaker_label ?? transcriptPayload.raw_speaker ?? '判別中...',
+              isPartial: transcriptPayload.isPartial ?? transcriptPayload.is_partial ?? !isFinalize,
+              index: transcriptPayload.index,
+            };
+            
+            console.log(`[useTranscripts] Processing transcript (${resolvedAction}):`, { ...entry, transcript: transcriptText.slice(0, 60) });
+            
+            setTranscripts((prev) => {
+              if (resolvedAction === 'update' && entry.index !== undefined) {
+                // Update existing entry with same index
+                const updated = prev.map(item => 
+                  item.index === entry.index ? { ...item, ...entry } : item
+                );
+                console.log('[useTranscripts] Updated existing transcript at index:', entry.index);
+                return updated;
+              } else if (isFinalize && entry.index !== undefined) {
+                // Finalize existing entry
+                const updated = prev.map(item => 
+                  item.index === entry.index ? { ...item, ...entry, isPartial: false } : item
+                );
+                console.log('[useTranscripts] Finalized transcript at index:', entry.index);
+                return updated;
+              } else {
+                // Add new entry（append/new）: index重複は上書き
+                if (entry.index !== undefined && prev.some(item => item.index === entry.index)) {
                   const updated = prev.map(item => 
                     item.index === entry.index ? { ...item, ...entry } : item
                   );
-                  console.log('[useTranscripts] Updated existing transcript at index:', entry.index);
+                  console.log('[useTranscripts] Replaced existing transcript at index:', entry.index);
                   return updated;
-                } else if (action === 'finalize' && entry.index !== undefined) {
-                  // Finalize existing entry
-                  const updated = prev.map(item => 
-                    item.index === entry.index ? { ...item, ...entry, isPartial: false } : item
-                  );
-                  console.log('[useTranscripts] Finalized transcript at index:', entry.index);
-                  return updated;
-                } else {
-                  // Add new entry (action === 'new' or no action specified)
-                  console.log('[useTranscripts] Adding new transcript entry');
-                  return [entry, ...prev].slice(0, 50);
                 }
-              });
-            }
+                console.log('[useTranscripts] Adding new transcript entry');
+                return [entry, ...prev].slice(0, 50);
+              }
+            });
           } catch (err) {
             console.warn('Failed to parse transcript payload', err);
           }

@@ -597,6 +597,18 @@ strong {
   border-color: #f44336;
 }
 
+.index-status.standby {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.12);
+  border-color: #00e676;
+}
+
+.standby-hint {
+  color: #b2fff2 !important;
+  margin: 0.35rem 0 0 0;
+  font-size: 0.9rem;
+}
+
 .alignment-chart-container {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -916,12 +928,14 @@ strong {
 
 .analysis-feed {
   max-height: 300px;
+  min-height: 140px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   width: 100%;
+  padding-right: 4px;
 }
 
 .analysis-item {
@@ -934,6 +948,9 @@ strong {
   max-width: 100%;
   box-sizing: border-box;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .analysis-item:hover {
@@ -943,21 +960,23 @@ strong {
 
 .analysis-item header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   flex-wrap: wrap;
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .analysis-item p {
   color: #00ffff !important;
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.5;
   word-wrap: break-word;
+  word-break: break-word;
   overflow-wrap: break-word;
   max-width: 100%;
+  white-space: normal;
 }
 
 .analysis-count {
