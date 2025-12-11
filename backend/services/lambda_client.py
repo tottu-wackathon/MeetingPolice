@@ -53,9 +53,10 @@ class LambdaClient:
 
         function_name = "obniz2"
         
-        # obniz2 Lambda関数に渡すペイロード（LED点灯）
+        # obniz2 Lambda関数に渡すペイロード（LED点灯 + 10秒後自動消灯）
         payload = {
-            "url": "https://obniz.com/obniz/3754-4414/message?data=on"
+            "url": "https://obniz.com/obniz/3754-4414/message?data=on",
+            "auto_off_seconds": 10  # 10秒後に自動消灯
         }
 
         # 詳細ログ記録開始
@@ -91,11 +92,12 @@ class LambdaClient:
 
             result = {
                 "statusCode": response['StatusCode'],
-                "message": "Police dispatch LED turned ON successfully",
+                "message": "Police dispatch LED turned ON successfully (auto OFF in 10s)",
                 "dispatchId": f"dispatch-{meeting_data.get('meeting_id')}-{int(time.time())}",
                 "function_name": function_name,
                 "invocation_type": "Event",
                 "led_status": "ON",
+                "auto_off_seconds": 10,
                 "execution_time_ms": execution_time_ms,
                 "invocation_timestamp": invocation_timestamp
             }

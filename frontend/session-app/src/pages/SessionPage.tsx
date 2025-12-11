@@ -131,16 +131,12 @@ export function SessionPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
   // アジェンダ関連のstate
   const [selectedAgenda, setSelectedAgenda] = useState<File | null>(null);
-  const [agendaText, setAgendaText] = useState<string>('');
 
   // アジェンダファイル選択ハンドラー
   const handleAgendaSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type === 'text/plain') {
       setSelectedAgenda(file);
-      // ファイル内容を読み取り
-      const text = await file.text();
-      setAgendaText(text);
     } else if (file) {
       alert('テキストファイル(.txt)を選択してください');
       event.target.value = '';
@@ -342,7 +338,10 @@ export function SessionPage() {
       return;
     }
 
-    const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
+    // Bedrockで確定した結果のみを使用（is_final: true）
+    const validItems = realtimeClassifications.filter(item => 
+      item.text.length >= 10 && item.is_final === true
+    );
     if (validItems.length < 3) {
       setShowWarning(false);
       return;
@@ -374,7 +373,7 @@ export function SessionPage() {
         }
         policeWarningTimeoutRef.current = window.setTimeout(() => {
           setShowPoliceWarning(false);
-        }, 15000);
+        }, 10000);
       } else if (!shouldShowPolice) {
         setShowWarning(true);
         setShowPoliceWarning(false);
@@ -472,7 +471,10 @@ export function SessionPage() {
           </section>
 
           {realtimeClassifications.length > 0 && (() => {
-            const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
+            // Bedrockで確定した結果のみを使用（is_final: true）
+            const validItems = realtimeClassifications.filter(item => 
+              item.text.length >= 10 && item.is_final === true
+            );
             if (validItems.length === 0) return null;
 
             const recent10 = validItems.slice(-10);
@@ -635,7 +637,7 @@ export function SessionPage() {
               <h2>👥 話者識別・発言割合</h2>
             </div>
             <div className="speaker-stats-grid">
-              {speakerStats.map(({ speaker, count, percentage, isNew }) => {
+              {speakerStats.map(({ speaker, percentage, isNew }) => {
                 const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
                 const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
 
