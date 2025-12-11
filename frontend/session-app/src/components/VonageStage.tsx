@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-// eslint-disable-next-line import/no-unresolved
-import OT from '@opentok/client';
+import { VideoClient, Session, Publisher } from '@vonage/video';
 
 type Props = {
   apiKey: string;
@@ -76,19 +75,20 @@ export function VonageStage({
   };
 
   useEffect(() => {
-    console.log('[VonageStage] useEffect triggered', { 
-      enabled, 
-      apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
-      sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined', 
-      token: token ? token.substring(0, 20) + '...' : 'undefined' 
-    });
-    
-    if (!enabled) {
-      console.log('[VonageStage] Not enabled, setting idle');
-      setStatus('idle');
-      setError(null);
-      return undefined;
-    }
+    const initializeVonage = async () => {
+      console.log('[VonageStage] useEffect triggered', { 
+        enabled, 
+        apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
+        sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined', 
+        token: token ? token.substring(0, 20) + '...' : 'undefined' 
+      });
+      
+      if (!enabled) {
+        console.log('[VonageStage] Not enabled, setting idle');
+        setStatus('idle');
+        setError(null);
+        return;
+      }
 
     if (!apiKey || !sessionId || !token) {
       console.log('[VonageStage] Missing credentials', { hasApiKey: !!apiKey, hasSessionId: !!sessionId, hasToken: !!token });
@@ -97,34 +97,36 @@ export function VonageStage({
       return undefined;
     }
 
-    // グローバルなOTオブジェクトを確認
-    const OTClient: any = (window as any).OT || OT;
-    console.log('[VonageStage] Checking OT availability:', { 
-      hasWindowOT: !!(window as any).OT, 
-      hasImportedOT: !!OT, 
-      hasInitSession: !!OTClient?.initSession 
-    });
-    
-    if (!OTClient?.initSession) {
-      console.log('[VonageStage] OpenTok SDK not available - OT object or initSession method missing');
-      setStatus('error');
-      setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
-      return undefined;
-    }
+      // Vonage Video SDK の確認
+      console.log('[VonageStage] Checking Vonage Video SDK availability:', { 
+        hasVideoClient: !!VideoClient,
+        hasSession: !!Session,
+        hasPublisher: !!Publisher
+      });
+      
+      if (!VideoClient || !Session || !Publisher) {
+        console.log('[VonageStage] Vonage Video SDK not available');
+        setStatus('error');
+        setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
+        return;
+      }
 
     console.log('[VonageStage] Starting Vonage session initialization...');
 
     setStatus('connecting');
     setError(null);
 
-    try {
-      console.log('[VonageStage] Creating session with', { 
-        apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
-        sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined' 
-      });
-      const session = OTClient.initSession(apiKey, sessionId);
-      sessionRef.current = session;
-      console.log('[VonageStage] Session created successfully');
+      try {
+        console.log('[VonageStage] Creating Vonage Video session with', { 
+          apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
+          sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined' 
+        });
+        
+        // Vonage Video SDK初期化
+        const client = new VideoClient();
+        const session = await client.connect(apiKey, sessionId, token);
+        sessionRef.current = session;
+        console.log('[VonageStage] Vonage Video session connected successfully');
 
       session.on('connected', (event: any) => {
         console.log('[Vonage] Session connected successfully');
@@ -323,10 +325,13 @@ export function VonageStage({
           }
         });
       });
-    } catch (err) {
-      setStatus('error');
-      setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
-    }
+      } catch (err) {
+        setStatus('error');
+        setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
+      }
+    };
+
+    initializeVonage();
 
     return () => {
       const activeSession = sessionRef.current;
