@@ -660,7 +660,7 @@ export function SessionPage() {
               <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 {realtimeClassifications
                   .filter(item => item.text.length >= 1) // 即座表示のため閾値を最小に
-                  .slice() // 時系列順（最新が下）
+                  .slice() // 時系列順（古い発話が上、新しい発話が下）
                   .map((item, index) => {
                     const isFinal = item.is_final === true;
                     const isPartial = item.is_partial === true;

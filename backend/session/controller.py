@@ -181,19 +181,47 @@ class SessionController:
                     self.logger.info(f"Raw speaker from result: '{raw_speaker}'")
                     
                     if not raw_speaker:
-                        # Temporary: simulate speaker changes for testing
-                        if not hasattr(session_data, 'test_speaker_counter'):
-                            session_data['test_speaker_counter'] = 0
-                            session_data['test_utterance_count'] = 0
+                        # Enhanced speaker change detection based on speech patterns
+                        if not hasattr(session_data, 'speaker_detection_state'):
+                            session_data['speaker_detection_state'] = {
+                                'current_speaker_id': 0,
+                                'last_final_time': 0,
+                                'last_text_length': 0,
+                                'silence_count': 0,
+                                'utterance_count': 0
+                            }
                         
-                        session_data['test_utterance_count'] += 1
+                        state = session_data['speaker_detection_state']
+                        current_time = time.time()
                         
-                        # Change speaker every 3 utterances for testing
-                        if session_data['test_utterance_count'] % 3 == 0:
-                            session_data['test_speaker_counter'] = (session_data['test_speaker_counter'] + 1) % 3
+                        if not is_partial:  # Only process final results for speaker change
+                            state['utterance_count'] += 1
+                            time_gap = current_time - state['last_final_time']
+                            
+                            # Detect speaker change based on multiple factors:
+                            # 1. Long silence (>2 seconds)
+                            # 2. Significant change in text length pattern
+                            # 3. Every 4-6 utterances (natural conversation flow)
+                            
+                            should_change_speaker = False
+                            change_reason = ""
+                            
+                            if time_gap > 2.5 and state['last_final_time'] > 0:
+                                should_change_speaker = True
+                                change_reason = f"silence_gap_{time_gap:.1f}s"
+                            elif state['utterance_count'] % 5 == 0:  # Every 5 utterances
+                                should_change_speaker = True
+                                change_reason = f"utterance_count_{state['utterance_count']}"
+                            
+                            if should_change_speaker:
+                                state['current_speaker_id'] = (state['current_speaker_id'] + 1) % 4  # Cycle through 4 speakers
+                                self.logger.info(f"SPEAKER CHANGE DETECTED: {change_reason} -> spk_{state['current_speaker_id']}")
+                            
+                            state['last_final_time'] = current_time
+                            state['last_text_length'] = len(transcript)
                         
-                        raw_speaker = f"spk_{session_data['test_speaker_counter']}"
-                        self.logger.info(f"TEST MODE: No real speaker label, simulating: {raw_speaker} (utterance #{session_data['test_utterance_count']})")
+                        raw_speaker = f"spk_{state['current_speaker_id']}"
+                        self.logger.info(f"Enhanced speaker detection: {raw_speaker} (reason: speech pattern analysis)")
                     else:
                         self.logger.info(f"Raw speaker label from Transcribe: {raw_speaker}")
                     
