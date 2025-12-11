@@ -36,42 +36,48 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status } = payload;
       
       setRealtimeClassifications((prev) => {
-        // result_idベースで確実に統合
-        const resultId = payload.result_id || `analysis_${index}`;
+        const resultId = payload.result_id || `utterance_${index}`;
         
-        // 既存エントリを result_id で検索
+        // 既存エントリを result_id で検索（確実な統合）
         const existingIndex = prev.findIndex((item) => 
-          (item as any).result_id === resultId || item.index === index
+          (item as any).result_id === resultId
         );
         
         if (existingIndex >= 0) {
-          // 既存エントリを更新（継続更新）
+          // 既存エントリを更新（同一発話の継続更新）
           const updated = [...prev];
           updated[existingIndex] = { 
             index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
             result_id: resultId
           } as any;
-          console.log('[SessionPage] Updated existing result:', { 
-            text: text.substring(0, 30), speaker, ai_status, resultId, existingIndex 
+          
+          console.log('[SessionPage] Continuous update:', { 
+            text: text.substring(0, 50), 
+            speaker, 
+            ai_status, 
+            position: existingIndex,
+            length: text.length
           });
+          
           return updated;
         }
         
-        // 新しいエントリを追加（インデックス順でソート）
+        // 新しい発話エントリを追加
         const newEntry = { 
           index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
           result_id: resultId
         } as any;
         
-        const updated = [...prev, newEntry];
-        // インデックス順でソート（順番を保持）
-        updated.sort((a, b) => (a.index || 0) - (b.index || 0));
-        
-        console.log('[SessionPage] Added new result:', { 
-          text: text.substring(0, 30), speaker, ai_status, resultId, totalItems: updated.length 
+        console.log('[SessionPage] New utterance:', { 
+          text: text.substring(0, 50), 
+          speaker, 
+          ai_status, 
+          index,
+          totalItems: prev.length + 1
         });
         
-        return updated.slice(-100); // 最新100件に制限
+        // 新しいエントリを末尾に追加（時系列順）
+        return [...prev, newEntry].slice(-50); // 最新50件に制限
       });
     },
     isMuted // ミュート状態を渡す
@@ -654,7 +660,7 @@ export function SessionPage() {
               <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 {realtimeClassifications
                   .filter(item => item.text.length >= 1) // 即座表示のため閾値を最小に
-                  .slice() // ソート済みなのでreverseしない（時系列順）
+                  .slice() // 時系列順（最新が下）
                   .map((item, index) => {
                     const isFinal = item.is_final === true;
                     const isPartial = item.is_partial === true;

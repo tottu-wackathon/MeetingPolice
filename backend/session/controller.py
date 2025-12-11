@@ -323,31 +323,45 @@ class SessionController:
         """Handle transcription result with integrated real-time analysis."""
         is_final = not is_partial
         
-        # Handle transcription (but don't send to WebSocket yet - we'll send integrated result)
+        # Handle transcription first
         await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final, websocket)
         
-        # Integrated real-time analysis with consistent indexing
-        if len(text.strip()) >= 3:
-            # Use consistent index based on result_id to ensure same utterance uses same index
-            analysis_index = hash(result_id) % 100000
+        # Manage current utterance state
+        if not hasattr(session_data, 'current_analysis_entry'):
+            session_data['current_analysis_entry'] = None
+            session_data['current_analysis_speaker'] = None
+            session_data['current_analysis_index'] = 1
+        
+        # Check if this is a new speaker or continuation
+        is_new_speaker = (session_data['current_analysis_speaker'] != speaker_label)
+        
+        if is_new_speaker or session_data['current_analysis_entry'] is None:
+            # New speaker or first utterance - create new analysis entry
+            session_data['current_analysis_index'] += 1
+            session_data['current_analysis_speaker'] = speaker_label
+            session_data['current_analysis_entry'] = {
+                "index": session_data['current_analysis_index'],
+                "speaker": speaker_label,
+                "text": text,
+                "ai_status": "AI暫定"
+            }
             
-            # Determine AI status based on state
-            if is_final:
-                ai_status = "AI確定"  # Final result always gets AI確定 after Bedrock
-            else:
-                ai_status = "AI暫定"  # Partial results get AI暫定
+            # Send new analysis entry
+            await self._send_analysis_update(websocket, session_data, is_partial)
             
-            # Send immediate analysis with proper status
-            await self._send_integrated_analysis(
-                websocket, session_data["meeting_id"], text, speaker_label, 
-                analysis_index, is_partial, ai_status
-            )
+        else:
+            # Same speaker - update existing entry
+            session_data['current_analysis_entry']['text'] = text
             
-            # Trigger Bedrock analysis only for final results (speaker change)
-            if is_final:
-                asyncio.create_task(self._classify_with_bedrock_integrated(
-                    session_data, text, speaker_label, analysis_index, websocket, "speaker_change"
-                ))
+            # Send update for existing entry
+            await self._send_analysis_update(websocket, session_data, is_partial)
+        
+        # When utterance is final (speaker change), trigger Bedrock and mark as AI確定
+        if is_final and session_data['current_analysis_entry']:
+            # Trigger Bedrock analysis
+            asyncio.create_task(self._finalize_analysis_with_bedrock(
+                session_data, websocket
+            ))
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
         """Handle a single transcription result with duplicate prevention."""
@@ -638,6 +652,103 @@ class SessionController:
         else:
             return "コメント"
     
+    async def _send_analysis_update(self, websocket: WebSocket, session_data: dict, is_partial: bool) -> None:
+        """Send analysis update for current utterance."""
+        if not session_data.get('current_analysis_entry'):
+            return
+        
+        entry = session_data['current_analysis_entry']
+        text = entry['text']
+        speaker = entry['speaker']
+        index = entry['index']
+        
+        # Skip meta information
+        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
+            return
+        
+        # Fast analysis
+        category = self._fast_guess_category(text)
+        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
+        
+        result = {
+            "index": index,
+            "text": text,
+            "speaker": speaker,
+            "category": category,
+            "alignment": alignment,
+            "method": "keyword",
+            "is_final": not is_partial,
+            "is_partial": is_partial,
+            "ai_status": entry['ai_status'],
+            "result_id": f"utterance_{index}"
+        }
+
+        try:
+            await websocket.send_json({
+                "type": "realtime_classification",
+                "payload": result
+            })
+        except Exception as e:
+            self.logger.error(f"Failed to send analysis update: {e}")
+
+    async def _finalize_analysis_with_bedrock(self, session_data: dict, websocket: WebSocket) -> None:
+        """Finalize current analysis with Bedrock and mark as AI確定."""
+        if not session_data.get('current_analysis_entry'):
+            return
+        
+        entry = session_data['current_analysis_entry']
+        text = entry['text']
+        speaker = entry['speaker']
+        index = entry['index']
+        
+        try:
+            # Bedrock analysis
+            segment = {
+                "index": index,
+                "speaker": speaker,
+                "text": text,
+                "context_before": "",
+                "context_after": "",
+            }
+            
+            classified = await asyncio.to_thread(
+                classify_transcript_segments,
+                [segment],
+                session_data["agenda_text"]
+            )
+            
+            if classified and len(classified) > 0:
+                result = classified[0]
+                category_ai = result.get("category", self._fast_guess_category(text))
+                alignment_ai = result.get("alignment", 0)
+            else:
+                category_ai = self._fast_guess_category(text)
+                alignment_ai = self._fast_calculate_alignment(text, session_data["agenda_text"])
+            
+            # Send final AI確定 result
+            final_result = {
+                "index": index,
+                "text": text,
+                "speaker": speaker,
+                "category": category_ai,
+                "alignment": alignment_ai,
+                "method": "bedrock",
+                "is_final": True,
+                "is_partial": False,
+                "ai_status": "AI確定",
+                "result_id": f"utterance_{index}"
+            }
+            
+            await websocket.send_json({
+                "type": "realtime_classification",
+                "payload": final_result
+            })
+            
+            self.logger.info(f"Analysis finalized: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}% (AI確定)")
+            
+        except Exception as e:
+            self.logger.error(f"Bedrock finalization failed: {e}")
+
     async def _send_integrated_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool, ai_status: str) -> None:
         """Send integrated analysis with consistent indexing."""
         session_data = self.session_data.get(meeting_id)
