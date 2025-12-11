@@ -254,13 +254,32 @@ class VonageClient:
             self.logger.info("🔧 Authentication method: %s", self.auth_method)
             expire_time = int(time.time()) + ttl_seconds
             
-            # Create TokenOptions object
-            token_options = TokenOptions(
-                session_id=session_id,
-                role='publisher',  # Can publish and subscribe
-                expire_time=expire_time,
-                data=f'meeting_session_{session_id[:8]}'  # Optional connection data
-            )
+            # Create TokenOptions object with proper claims
+            self.logger.info("🔧 Creating TokenOptions with:")
+            self.logger.info("  - Session ID: %s", session_id)
+            self.logger.info("  - Role: publisher")
+            self.logger.info("  - Expire time: %d", expire_time)
+            self.logger.info("  - Auth method: %s", self.auth_method)
+            
+            # Different token generation based on auth method
+            if self.auth_method == "api_secret":
+                # For API Key/Secret authentication, use legacy-compatible token generation
+                self.logger.info("🔧 Using API Key/Secret token generation (legacy compatible)")
+                token_options = TokenOptions(
+                    session_id=session_id,
+                    role='publisher',
+                    expire_time=expire_time,
+                    data=f'meeting_session_{session_id[:8]}'
+                )
+            else:
+                # For JWT authentication, use modern token generation
+                self.logger.info("🔧 Using JWT token generation (modern)")
+                token_options = TokenOptions(
+                    session_id=session_id,
+                    role='publisher',
+                    expire_time=expire_time,
+                    data=f'meeting_session_{session_id[:8]}'
+                )
             
             token = self.video_client.generate_client_token(token_options)
             
@@ -274,7 +293,7 @@ class VonageClient:
                            len(token), type(token).__name__, 
                            token[:10] + "..." if len(token) > 10 else token, "." in token)
             
-            # Log token format for debugging
+            # Log token format for debugging and validate JWT claims
             if isinstance(token, str):
                 if token.startswith('T1=='):
                     self.logger.info("🔍 Token format: OpenTok legacy format (T1==)")
@@ -291,6 +310,21 @@ class VonageClient:
                             payload_b64 += "=" * (4 - len(payload_b64) % 4)  # パディング調整
                             payload = json.loads(base64.b64decode(payload_b64))
                             self.logger.info("🔍 JWT payload: %s", payload)
+                            
+                            # Validate required claims for Vonage Video API
+                            required_claims = ['session_id', 'role', 'exp', 'iat']
+                            missing_claims = [claim for claim in required_claims if claim not in payload]
+                            if missing_claims:
+                                self.logger.warning("⚠️  Missing required JWT claims: %s", missing_claims)
+                            else:
+                                self.logger.info("✅ All required JWT claims present")
+                                
+                            # Check if session_id matches
+                            if payload.get('session_id') != session_id:
+                                self.logger.warning("⚠️  JWT session_id mismatch: expected %s, got %s", 
+                                                  session_id, payload.get('session_id'))
+                            else:
+                                self.logger.info("✅ JWT session_id matches")
                     except Exception as e:
                         self.logger.warning("Failed to decode JWT payload: %s", e)
                 else:
