@@ -337,6 +337,10 @@ export function SessionPage() {
       <>
         {/* 参加者一覧 */}
         <section className="panel participants-panel">
+          <div className="panel-header">
+            <h2>参加者</h2>
+            <span className="badge">{participants.length}名</span>
+          </div>
           <div className="participants-grid">
             {participants.map((p) => (
               <div key={p.id} className="participant-window">
@@ -431,10 +435,13 @@ export function SessionPage() {
               videoOff={isVideoOff}
               enabled={true}
               onParticipantsChange={(vonageParticipants) => {
-                setParticipants([
-                  { id: 'local', name: 'You', role: 'host', isSpeaking: false },
+                console.log('[SessionPage] Vonage participants updated:', vonageParticipants);
+                const updatedParticipants = [
+                  { id: 'local', name: 'You', role: 'host' as const, isSpeaking: false },
                   ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
-                ]);
+                ];
+                console.log('[SessionPage] Setting participants:', updatedParticipants);
+                setParticipants(updatedParticipants);
               }}
             />
           </div>
