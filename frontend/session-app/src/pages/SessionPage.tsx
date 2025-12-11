@@ -1,10 +1,9 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
-import type { Participant } from '../types';
 
 export function SessionPage() {
   const {
@@ -14,11 +13,6 @@ export function SessionPage() {
     joinMeeting,
     leaveMeeting,
     isMuted,
-    isVideoOff,
-    handRaised,
-    toggleMute,
-    toggleVideo,
-    toggleHand,
   } = useMeetingSession();
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
@@ -99,16 +93,12 @@ export function SessionPage() {
   const [meetingCode, setMeetingCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([
-    { id: 'local', name: 'You', role: 'host', isSpeaking: false }
-  ]);
-  
   // アジェンダ関連のstate
   const [selectedAgenda, setSelectedAgenda] = useState<File | null>(null);
   const [agendaText, setAgendaText] = useState<string>('');
 
   // アジェンダファイル選択ハンドラー
-  const handleAgendaSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAgendaSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type === 'text/plain') {
       setSelectedAgenda(file);
@@ -129,39 +119,21 @@ export function SessionPage() {
     setJoinError(null);
     try {
       // アジェンダファイルがある場合は先にアップロード
-      if (selectedAgenda && agendaText) {
-        try {
-          const response = await fetch(`/api/session/meetings/${finalMeetingCode}/agenda`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              agenda_text: agendaText,
-              filename: selectedAgenda.name
-            }),
-          });
-          
-          if (!response.ok) {
-            let errorMessage = 'アジェンダのアップロードに失敗しました';
-            try {
-              const errorData = await response.json();
-              errorMessage = errorData.detail || errorMessage;
-            } catch (jsonError) {
-              // JSONパースに失敗した場合はレスポンステキストを取得
-              const errorText = await response.text();
-              console.error('Server returned non-JSON error:', errorText);
-              errorMessage = `サーバーエラー (${response.status}): ${errorText.substring(0, 100)}`;
-            }
-            throw new Error(errorMessage);
-          }
-          
-          const result = await response.json();
-          console.log('Agenda uploaded successfully:', result);
-        } catch (uploadError) {
-          console.error('Agenda upload failed:', uploadError);
-          throw new Error(`アジェンダアップロードエラー: ${uploadError.message}`);
+      if (selectedAgenda) {
+        const formData = new FormData();
+        formData.append('file', selectedAgenda);
+        
+        const response = await fetch(`/api/session/meetings/${finalMeetingCode}/agenda`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'アジェンダのアップロードに失敗しました');
         }
+        
+        console.log('Agenda uploaded successfully');
       }
       
       await joinMeeting(finalMeetingCode);
@@ -262,8 +234,6 @@ export function SessionPage() {
     leaveMeeting();
     navigate('/');
   };
-
-  const participantCount = participants.length;
 
   // poc_satominと同じ音声アラート機能
   const playVoiceAlert = (message: string) => {
@@ -394,394 +364,239 @@ export function SessionPage() {
   if (session) {
     content = (
       <>
-        {/* 参加者一覧 */}
-        <section className="panel participants-panel">
-          <div className="participants-grid">
-            {participants.map((p) => (
-              <div key={p.id} className="participant-window">
-                <div className="participant-avatar">
-                  {p.name?.charAt(0) || 'G'}
+        <section className="session-top-bar">
+          <div className="session-meta">
+            <span className="pill slim">Meeting: {session.meetingId}</span>
+            <span className={`status-chip ${status}`}>{status}</span>
+          </div>
+          <button 
+            type="button" 
+            className="pill slim leave-btn" 
+            onClick={handleLeave}
+            title="退出"
+          >
+            🚪 退出
+          </button>
+        </section>
+
+        {/* 2列: 左に文字起こし、右に会議治安指数 */}
+        <div className="main-grid">
+          <section className="panel transcript-panel">
+            <div className="panel-header">
+              <h2>📝 リアルタイム文字起こし</h2>
+              <span className="transcript-count">{transcripts.length} 行</span>
+            </div>
+            <div className="transcript-feed large-text">
+              {transcripts.map((item, arrayIndex) => (
+                <article 
+                  key={item.index !== undefined ? `transcript-${item.index}` : `${item.timestamp}-${arrayIndex}`} 
+                  className={`transcript-item ${item.isPartial ? 'partial' : 'final'}`}
+                >
+                  <header>
+                    <strong className="speaker-name">{displaySpeaker(item.speaker || 'Unknown')}</strong>
+                    <span className="timestamp">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                    {item.isPartial && <span className="pill partial-pill">更新中</span>}
+                    {!item.isPartial && <span className="pill final-pill">確定</span>}
+                  </header>
+                  <p className={`transcript-text ${item.isPartial ? 'partial-text' : 'final-text'}`}>
+                    {item.transcript}
+                    {item.isPartial && <span className="cursor">|</span>}
+                  </p>
+                </article>
+              ))}
+              {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
+            </div>
+          </section>
+
+          {realtimeClassifications.length > 0 && (() => {
+            const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
+            if (validItems.length === 0) return null;
+
+            const recent10 = validItems.slice(-10);
+            const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+            const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
+            const avgAlignment = recent10.length
+              ? Math.round(
+                recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+              )
+              : 0;
+
+            const padding = 8;
+            const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
+            const bars = recent10.map((item, idx) => {
+              const x = padding + idx * barWidth + barWidth * 0.1;
+              const height = Math.max(0, Math.min(100, item.alignment));
+              const y = 100 - height;
+              return { x, y, height, value: item.alignment };
+            });
+
+            const toPoints = (items: typeof recent10) =>
+              items.map((item, idx) => {
+                const x =
+                  items.length === 1
+                    ? 50
+                    : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
+                const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
+                return { x, y, value: item.alignment };
+              });
+
+            const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
+              if (pts.length === 0) return '';
+              if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+              let d = `M ${pts[0].x},${pts[0].y}`;
+              for (let i = 1; i < pts.length; i++) {
+                const prev = pts[i - 1];
+                const curr = pts[i];
+                const mx = (prev.x + curr.x) / 2;
+                const my = (prev.y + curr.y) / 2;
+                d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
+              }
+              d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
+              return d;
+            };
+
+            const weightedAvgPoints = (() => {
+              const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+              const cumulativeWeights: number[] = [];
+              let sumW = 0;
+              weights.forEach((w) => {
+                sumW += w;
+                cumulativeWeights.push(sumW);
+              });
+              let cum = 0;
+              return recent10.map((item, idx) => {
+                cum += item.alignment * weights[idx];
+                const avg = cum / (cumulativeWeights[idx] || 1);
+                return { alignment: avg };
+              });
+            })();
+
+            const pointsWeighted = toPoints(
+              weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
+            );
+            const pathDWeighted = buildSmoothPath(pointsWeighted);
+
+            return (
+              <section className="panel security-index-panel">
+                <div className="panel-header">
+                  <h2>🚨 会議治安指数</h2>
                 </div>
-                {p.id === 'local' && (
-                  <div className="participant-controls">
-                    <button 
-                      type="button" 
-                      onClick={toggleMute} 
-                      className={`control-btn ${isMuted ? 'off' : ''}`}
-                      title={isMuted ? 'ミュート解除' : 'ミュート'}
-                    >
-                      {isMuted ? '🔇' : '🎙️'}
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={toggleVideo} 
-                      className={`control-btn ${isVideoOff ? 'off' : ''}`}
-                      title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}
-                    >
-                      {isVideoOff ? '📷' : '🎥'}
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={toggleHand} 
-                      className={`control-btn ${handRaised ? 'active' : ''}`}
-                      title={handRaised ? '手を下げる' : '手を挙げる'}
-                    >
-                      ✋
-                    </button>
-                    <button 
-                      type="button" 
-                      className="control-btn danger" 
-                      onClick={handleLeave} 
-                      title="退出"
-                    >
-                      🚪
-                    </button>
+                <div className="security-index-content">
+                  <div className="index-display">
+                    <div className="index-number" style={{
+                      color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336'
+                    }}>
+                      {avgAlignment}%
+                    </div>
+                    <div className="index-status">
+                      {avgAlignment >= 60 ? '✅ 良好' : avgAlignment >= 40 ? '⚠️ 注意' : '🚨 危険'}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                  <div className="alignment-chart-container">
+                    <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
+                          <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
+                        </linearGradient>
+                      </defs>
+                      {/* 警告・警察ライン */}
+                      <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
+                      <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
+                      {/* 棒グラフ */}
+                      {bars.map((b, idx) => {
+                        const barColor = b.value <= 30 ? '#f44336' : b.value <= 50 ? '#ff9800' : 'rgba(0,255,255,0.35)';
+                        return (
+                          <rect
+                            key={idx}
+                            x={b.x}
+                            y={b.y}
+                            width={barWidth * 0.8}
+                            height={b.height}
+                            fill={barColor}
+                            rx="1.5"
+                          />
+                        );
+                      })}
+                      {/* ライン */}
+                      <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" />
+                      {/* ポイント */}
+                      {pointsWeighted.map((p, idx) => (
+                        <circle key={idx} cx={p.x} cy={p.y} r={2.2} fill="#00ffff" stroke="#0a0e27" strokeWidth="0.7" />
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+        </div>
+
+        {/* 下段: 分析結果と話者識別 */}
+        <section className="panel analysis-results-panel">
+          <div className="panel-header">
+            <h2>🔍 リアルタイム分析結果</h2>
+            <span className="analysis-count">{realtimeClassifications.length} 件</span>
+          </div>
+          <div className="analysis-feed">
+            {realtimeClassifications
+              .filter(item => item.text.length >= 10)
+              .map((item, index) => {
+                const isFinal = item.is_final === true;
+                const icon = isFinal ? '✅' : '📊';
+                const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
+
+                return (
+                  <article key={index} className="analysis-item">
+                    <header>
+                      <strong>{displaySpeaker(item.speaker)}</strong>
+                      <span className="pill category-pill">{item.category}</span>
+                      <span className="pill alignment-pill" style={{ backgroundColor: bgColor }}>
+                        {icon} {item.alignment}%
+                      </span>
+                      {isFinal && <span className="pill final-pill">AI確定</span>}
+                    </header>
+                    <p>{item.text}</p>
+                  </article>
+                );
+              })}
+            {realtimeClassifications.filter(item => item.text.length >= 10).length === 0 && 
+              <p className="faded">発言を開始するとリアルタイム分析結果が表示されます。</p>}
           </div>
         </section>
 
-        {/* 2列レイアウト: 左側に文字起こし、右側にリアルタイム分析 */}
-        <div className="poc-columns">
-          <div className="poc-left">
-            <section className="panel transcript-panel">
-              <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
-                  <p className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>リアルタイム文字起こし</p>
-                  <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>{transcripts.length} 行</h2>
-                </div>
-              </div>
-              <div className="transcript-feed">
-                {transcripts.map((item, arrayIndex) => (
-                  <article 
-                    key={item.index !== undefined ? `transcript-${item.index}` : `${item.timestamp}-${arrayIndex}`} 
-                    className={`transcript-item ${item.isPartial ? 'partial' : 'final'}`}
-                  >
-                    <header>
-                      <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
-                      <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
-                      {item.isPartial && <span className="pill partial-pill">更新中</span>}
-                      {!item.isPartial && <span className="pill final-pill">確定</span>}
-                    </header>
-                    <p className={item.isPartial ? 'partial-text' : 'final-text'}>
-                      {item.transcript}
-                      {item.isPartial && <span className="cursor">|</span>}
-                    </p>
-                  </article>
-                ))}
-                {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
-              </div>
-            </section>
-          </div>
-
-          <div className="poc-right">
-
-            <section className="panel">
-              <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
-                  <p className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>🔍 リアルタイム分析</p>
-                  <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>{realtimeClassifications.length} 件</h2>
-                </div>
-              </div>
-
-              {speakerStats.length > 0 && (
-                <div
-                  style={{
-                    padding: '15px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    borderRadius: '8px',
-                    marginBottom: '16px',
-                    border: '2px solid #00ffff'
-                  }}
-                >
-                  <p style={{ margin: '0 0 12px 0', fontSize: '0.9em', color: '#00ffff', fontWeight: 'bold' }}>
-                    👥 話者別発言割合
-                  </p>
-                  {speakerStats.map(({ speaker, count, percentage, isNew }) => {
-                    const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
-                    const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
-
-                    return (
-                      <div
-                        key={speaker}
-                        className="speaker-card"
-                        style={{
-                          marginBottom: '12px',
-                          animation: isNew ? 'mpFadeSlide 0.4s ease' : undefined
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
-                              {displayName}
-                            </span>
-                            <input
-                              type="text"
-                              placeholder="名前を入力"
-                              value={speakerNames[speaker] || ''}
-                              onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
-                              style={{
-                                width: '120px',
-                                padding: '4px 8px',
-                                fontSize: '0.8em',
-                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                                border: '1px solid #00ffff',
-                                borderRadius: '4px',
-                                color: '#00ffff'
-                              }}
-                            />
-                          </div>
-                          <span style={{ color: barColor, fontSize: '0.9em', fontWeight: 'bold' }}>{percentage}%</span>
-                        </div>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: '8px',
-                            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                            borderRadius: '4px',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          <div
-                            className="speaker-bar"
-                            style={{
-                              width: `${percentage}%`,
-                              height: '100%',
-                              backgroundColor: barColor
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {realtimeClassifications.length > 0 && (() => {
-                // コメント（短い発言）を除外
-                const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
-                if (validItems.length === 0) return null;
-
-                const recent10 = validItems.slice(-10);
-                // 直近5件に重み3、それ以前に重み1の加重平均
-                const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-                const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
-                const avgAlignment = recent10.length
-                  ? Math.round(
-                    recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
-                  )
-                  : 0;
-
-                const padding = 8; // 両端が見切れないように少し余白
-
-                const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
-                const bars = recent10.map((item, idx) => {
-                  const x = padding + idx * barWidth + barWidth * 0.1;
-                  const height = Math.max(0, Math.min(100, item.alignment));
-                  const y = 100 - height;
-                  return { x, y, height, value: item.alignment };
-                });
-
-                const toPoints = (items: typeof recent10) =>
-                  items.map((item, idx) => {
-                    const x =
-                      items.length === 1
-                        ? 50
-                        : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
-                    const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
-                    return { x, y, value: item.alignment };
-                  });
-
-                const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
-                  if (pts.length === 0) return '';
-                  if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-                  let d = `M ${pts[0].x},${pts[0].y}`;
-                  for (let i = 1; i < pts.length; i++) {
-                    const prev = pts[i - 1];
-                    const curr = pts[i];
-                    const mx = (prev.x + curr.x) / 2;
-                    const my = (prev.y + curr.y) / 2;
-                    d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
-                  }
-                  d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
-                  return d;
-                };
-
-                const weightedAvgPoints = (() => {
-                  const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-                  const cumulativeWeights: number[] = [];
-                  let sumW = 0;
-                  weights.forEach((w) => {
-                    sumW += w;
-                    cumulativeWeights.push(sumW);
-                  });
-                  let cum = 0;
-                  return recent10.map((item, idx) => {
-                    cum += item.alignment * weights[idx];
-                    const avg = cum / (cumulativeWeights[idx] || 1);
-                    return { alignment: avg };
-                  });
-                })();
-
-                const pointsWeighted = toPoints(
-                  weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
-                );
-                const pathDWeighted = buildSmoothPath(pointsWeighted);
+        {speakerStats.length > 0 && (
+          <section className="panel speaker-stats-panel">
+            <div className="panel-header">
+              <h2>👥 話者識別・発言割合</h2>
+            </div>
+            <div className="speaker-stats-grid">
+              {speakerStats.map(({ speaker, count, percentage, isNew }) => {
+                const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
+                const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
 
                 return (
-                  <div
-                    className="alignment-card"
-                    style={{
-                      padding: '20px',
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                      borderRadius: '8px',
-                      marginBottom: '16px',
-                      border: '2px solid #00ffff'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-                      <div>
-                        <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
-                          会議治安指数
-                        </p>
-                        <div
-                          style={{
-                            fontSize: '2.6em',
-                            fontWeight: 'bold',
-                            color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336',
-                            lineHeight: '1',
-                            textShadow: '0 0 12px rgba(0,255,255,0.6)'
-                          }}
-                        >
-                          {avgAlignment}%
-                        </div>
-                      </div>
-                      <div style={{ flex: 1.4 }}>
-                        <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
-                              <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
-                              <stop offset="100%" stopColor="#00e676" stopOpacity="0.9" />
-                            </linearGradient>
-                            <linearGradient id="alignStroke2" x1="0%" y1="0%" x2="100%" y2="0%">
-                              <stop offset="0%" stopColor="#ff8a65" stopOpacity="0.9" />
-                              <stop offset="100%" stopColor="#ff5252" stopOpacity="0.9" />
-                            </linearGradient>
-                            <linearGradient id="alignFill" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <stop offset="0%" stopColor="rgba(0, 255, 255, 0.35)" />
-                              <stop offset="100%" stopColor="rgba(0, 255, 255, 0)" />
-                            </linearGradient>
-                          </defs>
-                          {/* 警告・警察ライン */}
-                          <line x1="0" x2="100" y1={100 - 50} y2={100 - 50} stroke="#ff9800" strokeDasharray="4 4" strokeWidth="0.8" />
-                          <line x1="0" x2="100" y1={100 - 30} y2={100 - 30} stroke="#ff1744" strokeDasharray="4 4" strokeWidth="0.8" />
-                          {/* 棒グラフ: 発話ごとのスコア */}
-                          {bars.map((b, idx) => {
-                            const barColor =
-                              b.value <= 0
-                                ? 'rgba(255, 255, 255, 0.2)'
-                                : b.value <= 30
-                                  ? '#f44336'
-                                  : b.value <= 50
-                                    ? '#ff9800'
-                                    : 'rgba(0,255,255,0.35)';
-                            const strokeColor =
-                              b.value <= 30 ? '#ff1744' : b.value <= 50 ? '#ffb74d' : 'rgba(0,255,255,0.6)';
-                            return (
-                              <g key={idx}>
-                                <rect
-                                  x={b.x}
-                                  y={b.y}
-                                  width={barWidth * 0.8}
-                                  height={b.height}
-                                  fill={barColor}
-                                  stroke={strokeColor}
-                                  strokeWidth="0.8"
-                                  rx="1.5"
-                                />
-                                {b.value <= 0 && (
-                                  <text
-                                    x={b.x + (barWidth * 0.8) / 2}
-                                    y={100 - 2}
-                                    textAnchor="middle"
-                                    fontSize="9"
-                                    fill="#ffca28"
-                                    style={{ filter: 'drop-shadow(0 0 3px rgba(0,0,0,0.7))' }}
-                                  >
-                                    ⚠️
-                                  </text>
-                                )}
-                              </g>
-                            );
-                          })}
-                          {/* ライン（加重平均の推移） */}
-                          <path d={pathDWeighted} stroke="url(#alignStroke)" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                          {/* ポイント（平均） */}
-                          {pointsWeighted.map((p, idx) => (
-                            <circle
-                              key={idx}
-                              cx={p.x}
-                              cy={p.y}
-                              r={2.2}
-                              fill="#00ffff"
-                              stroke="#0a0e27"
-                              strokeWidth="0.7"
-                            />
-                          ))}
-                        </svg>
-                      </div>
+                  <div key={speaker} className={`speaker-card ${isNew ? 'new-speaker' : ''}`}>
+                    <div className="speaker-info">
+                      <span className="speaker-display-name">{displayName}</span>
+                      <input
+                        type="text"
+                        placeholder="名前を入力"
+                        value={speakerNames[speaker] || ''}
+                        onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
+                        className="speaker-name-input"
+                      />
+                      <span className="speaker-percentage" style={{ color: barColor }}>{percentage}%</span>
+                    </div>
+                    <div className="speaker-bar-container">
+                      <div className="speaker-bar" style={{ width: `${percentage}%`, backgroundColor: barColor }} />
                     </div>
                   </div>
                 );
-              })()}
-
-              <div className="transcript-feed" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                {realtimeClassifications
-                  .filter(item => item.text.length >= 10)
-                  .map((item, index) => {
-                    const isFinal = item.is_final === true;
-                    const icon = isFinal ? '✅' : '📊';
-                    const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
-
-                    return (
-                      <article key={index} className="transcript-item">
-                        <header>
-                          <strong>{displaySpeaker(item.speaker)}</strong>
-                          <span className="pill">{item.category}</span>
-                          <span className="pill" style={{ backgroundColor: bgColor }}>
-                            {icon} {item.alignment}%
-                          </span>
-                          {isFinal && <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>}
-                        </header>
-                        <p>{item.text}</p>
-                      </article>
-                    );
-                  })}
-                {realtimeClassifications.filter(item => item.text.length >= 10).length === 0 && <p className="faded">発言を開始するとリアルタイム分析結果が表示されます。</p>}
-              </div>
-            </section>
-          </div>
-        </div>
-
-        {/* ステータス情報 */}
-        <section className="panel status-panel">
-          <div className="status-grid">
-            <div className="status-item">
-              <span className="status-label">ID</span>
-              <code className="status-value">{session.meetingId}</code>
+              })}
             </div>
-            <div className="status-item">
-              <span className="status-label">状態</span>
-              <span className="status-value">{status}</span>
-            </div>
-            <div className="status-item">
-              <span className="status-label">参加人数</span>
-              <span className="status-value">{participantCount}</span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
       </>
     );
   }
