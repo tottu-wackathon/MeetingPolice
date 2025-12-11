@@ -552,7 +552,6 @@ export function SessionPage() {
                 </div>
                 <div className="security-index-content">
                   <div className="index-display">
-                    <div className="index-label">会議治安指数</div>
                     <div className="index-metrics">
                       <div className="index-number" style={{ color: indexColor }}>
                         {avgAlignment}%
