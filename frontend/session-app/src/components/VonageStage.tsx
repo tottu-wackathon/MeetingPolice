@@ -25,6 +25,7 @@ export function VonageStage({
 }: Props) {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<any>(null);
   const publisherRef = useRef<any>(null);
   const sessionRef = useRef<any>(null);
   const publisherContainerRef = useRef<HTMLDivElement | null>(null);
@@ -94,13 +95,22 @@ export function VonageStage({
       const session = OTClient.initSession(apiKey, sessionId);
       sessionRef.current = session;
 
-      session.on('sessionConnected', () => {
-        console.log('[Vonage] Session connected');
+      session.on('sessionConnected', (event: any) => {
+        console.log('[Vonage] Session connected successfully');
+        const info = {
+          sessionId: session.sessionId,
+          connectionId: session.connection?.connectionId,
+          connectionCount: session.connectionCount || 0,
+          capabilities: session.capabilities || {},
+          isConnected: session.isConnected()
+        };
+        console.log('[Vonage] Session details:', info);
+        setSessionInfo(info);
         setStatus('connected');
       });
       
-      session.on('sessionDisconnected', () => {
-        console.log('[Vonage] Session disconnected');
+      session.on('sessionDisconnected', (event: any) => {
+        console.log('[Vonage] Session disconnected:', event.reason);
         setStatus('idle');
       });
 
@@ -113,7 +123,22 @@ export function VonageStage({
           name: label,
           role: isLocal ? 'host' : 'guest',
         } as const;
-        console.log('[Vonage] Connection created:', participant);
+        
+        console.log('[Vonage] Connection created:', {
+          participant,
+          isLocal,
+          connectionId: connection?.connectionId,
+          connectionData: connection?.data,
+          totalConnections: session.connectionCount
+        });
+        
+        // セッション情報を更新
+        setSessionInfo((prev: any) => ({
+          ...prev,
+          connectionCount: session.connectionCount,
+          totalConnections: session.connectionCount
+        }));
+        
         upsertParticipant(participant);
       });
 
@@ -246,9 +271,22 @@ export function VonageStage({
         <div><strong>Vonage接続状況:</strong> {status}</div>
         <div><strong>APIキー:</strong> {apiKey ? `${apiKey.substring(0, 8)}...` : '未設定'}</div>
         <div><strong>セッションID:</strong> {sessionId ? `${sessionId.substring(0, 20)}...` : '未設定'}</div>
+        
+        {sessionInfo && (
+          <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(0,255,0,0.1)', borderRadius: '4px' }}>
+            <div><strong>🔗 セッション詳細:</strong></div>
+            <div style={{ marginLeft: '16px', fontSize: '0.8em' }}>
+              <div>接続ID: {sessionInfo.connectionId}</div>
+              <div>接続数: {sessionInfo.connectionCount}</div>
+              <div>接続状態: {sessionInfo.isConnected ? '✅ 接続中' : '❌ 未接続'}</div>
+            </div>
+          </div>
+        )}
+        
         <div><strong>参加者数:</strong> {participantRef.current.length}名</div>
         <div><strong>ミュート:</strong> {muted ? 'はい' : 'いいえ'}</div>
         <div><strong>ビデオオフ:</strong> {videoOff ? 'はい' : 'いいえ'}</div>
+        
         {participantRef.current.length > 0 && (
           <div style={{ marginTop: '8px' }}>
             <strong>参加者一覧:</strong>
@@ -259,10 +297,77 @@ export function VonageStage({
             ))}
           </div>
         )}
+        
         {error && <div style={{ color: '#f44336' }}><strong>エラー:</strong> {error}</div>}
+        
         <div style={{ marginTop: '8px', fontSize: '0.8em', color: '#999' }}>
           💡 ビデオは参加者アイコン内に表示されます
         </div>
+        
+        {/* セッション接続テストボタン */}
+        {sessionRef.current && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button 
+                onClick={() => {
+                  const session = sessionRef.current;
+                  const info = {
+                    sessionId: session.sessionId,
+                    isConnected: session.isConnected(),
+                    connectionCount: session.connectionCount,
+                    connections: session.connections ? Object.keys(session.connections) : [],
+                    capabilities: session.capabilities,
+                    sessionState: session.sessionState
+                  };
+                  console.log('[Vonage] Manual session check:', info);
+                  alert(`セッション状態:\n接続: ${info.isConnected}\n接続数: ${info.connectionCount}\n接続ID数: ${info.connections.length}`);
+                }}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.8em',
+                  backgroundColor: '#007acc',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                🔍 セッション確認
+              </button>
+              
+              <button 
+                onClick={() => {
+                  console.log('[Vonage] Testing connection with different session...');
+                  // 同じセッションIDで新しい接続をテスト
+                  const testSession = (window as any).OT?.initSession(apiKey, sessionId);
+                  if (testSession) {
+                    testSession.connect(token, (err: any) => {
+                      if (err) {
+                        console.error('[Vonage] Test connection failed:', err);
+                        alert(`テスト接続失敗: ${err.message}`);
+                      } else {
+                        console.log('[Vonage] Test connection successful');
+                        alert('テスト接続成功！セッションは有効です。');
+                        testSession.disconnect();
+                      }
+                    });
+                  }
+                }}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.8em',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                🧪 接続テスト
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 隠れたコンテナ（他の参加者用） */}
