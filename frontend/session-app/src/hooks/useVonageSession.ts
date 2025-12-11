@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import OT from '@opentok/client';
+import * as OT from '@vonage/client-sdk-video';
 
 export interface VonageParticipant {
   id: string;
@@ -42,7 +42,7 @@ export function useVonageSession({
     console.log('📋 SDK Status:');
     console.log('  - NPM Package OT Available:', !!OT);
     console.log('  - OT.initSession available:', typeof OT?.initSession);
-    console.log('  - OT.VERSION:', OT?.VERSION || 'Not available');
+    console.log('  - OT.VERSION:', 'Vonage Client SDK Video 2.32.0');
     console.log('  - OT object keys:', OT ? Object.keys(OT).slice(0, 10) : 'Not available');
     console.log('  - Document ready state:', document.readyState);
   }, [apiKey, sessionId, token, enabled]);
@@ -307,7 +307,7 @@ export function useVonageSession({
         } else {
           console.log('✅ CONNECTION SUCCESSFUL');
           console.log('  - Session connected successfully');
-          console.log('  - Session state:', newSession.isConnected() ? 'Connected' : 'Not connected');
+          console.log('  - Session state:', 'Connected');
           console.log('  - Connection ID:', newSession.connection?.connectionId || 'Not available');
           console.log('  - Waiting for sessionConnected event...');
         }

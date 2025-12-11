@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import OT from '@opentok/client';
+import * as OT from '@vonage/client-sdk-video';
 
 interface VideoPublisherProps {
   session: OT.Session | null;
@@ -69,7 +69,7 @@ export function VideoPublisher({
           if (session && isPublishing) {
             session.unpublish(newPublisher);
           }
-          newPublisher.destroy();
+          // Publisher cleanup is handled by session.unpublish
         } catch (e) {
           console.warn('[VideoPublisher] Error destroying camera publisher:', e);
         }
@@ -119,7 +119,7 @@ export function VideoPublisher({
           if (session && isScreenPublishing) {
             session.unpublish(newScreenPublisher);
           }
-          newScreenPublisher.destroy();
+          // Screen publisher cleanup is handled by session.unpublish
         } catch (e) {
           console.warn('[VideoPublisher] Error destroying screen publisher:', e);
         }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import OT from '@opentok/client';
+import * as OT from '@vonage/client-sdk-video';
 
 interface VideoSubscriberProps {
   session: OT.Session | null;
@@ -81,9 +81,9 @@ export function VideoSubscriber({
       if (newSubscriber) {
         console.log('[VideoSubscriber] Destroying subscriber...');
         try {
-          newSubscriber.destroy();
+          session.unsubscribe(newSubscriber);
         } catch (e) {
-          console.warn('[VideoSubscriber] Error destroying subscriber:', e);
+          console.warn('[VideoSubscriber] Error unsubscribing:', e);
         }
       }
     };
