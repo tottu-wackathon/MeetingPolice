@@ -28,9 +28,7 @@ export function SessionPage() {
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
 
-  // 警察出動とアライメント警告の状態管理
-  const [policeDispatchNotification, setPoliceDispatchNotification] = useState<any>(null);
-  const [alignmentWarningNotification, setAlignmentWarningNotification] = useState<any>(null);
+  // 警察出動とアライメント警告の状態管理（古いロジックのみ使用）
 
   // useTranscriptsフックを使用してマイクアクセスと文字起こしを処理
   const { transcripts } = useTranscripts(
@@ -51,56 +49,7 @@ export function SessionPage() {
         return [...prev, { index, text, speaker, category, alignment, method, is_final }];
       });
     },
-    isMuted, // ミュート状態を渡す
-    (payload) => {
-      // 警察出動通知を受信
-      if (payload.type === 'police_dispatch') {
-        console.log('🚨 Police dispatch received in SessionPage:', payload);
-        setPoliceDispatchNotification(payload);
-        setShowPoliceWarning(true);
-        
-        // 15秒後に自動で非表示
-        setTimeout(() => {
-          setShowPoliceWarning(false);
-          setPoliceDispatchNotification(null);
-        }, 15000);
-        
-        // 音声アラート
-        playVoiceAlert('警察出動が要請されました！会議の進行を確認してください！');
-      } else if (payload.type === 'police_dispatch_off') {
-        // 警察出動解除通知を受信
-        console.log('🟢 Police dispatch OFF received in SessionPage:', payload);
-        setShowPoliceWarning(false);
-        setPoliceDispatchNotification(null);
-        
-        // 解除通知を一時的に表示
-        setAlignmentWarningNotification({
-          ...payload,
-          message: payload.message || '🟢 警察出動が解除されました'
-        });
-        
-        // 5秒後に自動で非表示
-        setTimeout(() => {
-          setAlignmentWarningNotification(null);
-        }, 5000);
-        
-        // 音声アラート
-        playVoiceAlert('警察出動が解除されました。会議が正常に進行しています。');
-      }
-    },
-    (payload) => {
-      // アライメント警告を受信
-      console.log('⚠️ Alignment warning received in SessionPage:', payload);
-      setAlignmentWarningNotification(payload);
-      
-      // 5秒後に自動で非表示
-      setTimeout(() => {
-        setAlignmentWarningNotification(null);
-      }, 5000);
-      
-      // 音声アラート
-      playVoiceAlert('議題から逸脱した発言が続いています');
-    }
+    isMuted // ミュート状態を渡す
   );
   
   // poc_satominと同じ警告機能
@@ -156,12 +105,13 @@ export function SessionPage() {
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
-    if (!meetingCode.trim()) return;
+    // Meeting IDが空の場合はデフォルト値を使用
+    const finalMeetingCode = meetingCode.trim() || 'mtg-1765448153';
     setJoining(true);
     setJoinError(null);
     try {
-      await joinMeeting(meetingCode);
-      navigate(`/session/${meetingCode.trim()}`);
+      await joinMeeting(finalMeetingCode);
+      navigate(`/session/${finalMeetingCode}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : '参加に失敗しました';
       console.error('Failed to join meeting', err);
@@ -202,7 +152,7 @@ export function SessionPage() {
       <form className="meeting-form" onSubmit={handleJoin}>
         <input
           type="text"
-          placeholder="Meeting ID"
+          placeholder="Meeting ID (空の場合: mtg-1765448153)"
           value={meetingCode}
           onChange={(event) => setMeetingCode(event.target.value)}
         />
@@ -794,59 +744,7 @@ export function SessionPage() {
           border: '6px solid #fff',
           textAlign: 'center'
         }}>
-          <div>🚨 警察出動！ 🚨</div>
-          {policeDispatchNotification && (
-            <div style={{ 
-              fontSize: '0.6em', 
-              marginTop: '10px', 
-              opacity: 0.9,
-              lineHeight: '1.3'
-            }}>
-              <div>{policeDispatchNotification.message}</div>
-              {policeDispatchNotification.details && (
-                <div style={{ fontSize: '0.8em', marginTop: '5px' }}>
-                  アライメント: {policeDispatchNotification.alignment_score}% | 
-                  発言者: {policeDispatchNotification.details.trigger_speaker} | 
-                  低アライメント回数: {policeDispatchNotification.details.low_alignment_count}回
-                </div>
-              )}
-              {policeDispatchNotification.dispatch_id && (
-                <div style={{ fontSize: '0.7em', marginTop: '5px', opacity: 0.8 }}>
-                  出動ID: {policeDispatchNotification.dispatch_id}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-      
-      {alignmentWarningNotification && (
-        <div style={{
-          position: 'fixed',
-          top: '100px',
-          right: '20px',
-          zIndex: 9998,
-          padding: '20px 30px',
-          backgroundColor: '#ff9800',
-          color: 'white',
-          borderRadius: '12px',
-          fontSize: '1.2em',
-          fontWeight: 'bold',
-          boxShadow: '0 8px 24px rgba(255, 152, 0, 0.5)',
-          border: '3px solid #fff',
-          maxWidth: '400px'
-        }}>
-          <div>⚠️ {alignmentWarningNotification.message}</div>
-          {alignmentWarningNotification.details && (
-            <div style={{ 
-              fontSize: '0.8em', 
-              marginTop: '8px', 
-              opacity: 0.9 
-            }}>
-              アライメント: {alignmentWarningNotification.alignment_score}% | 
-              発言者: {alignmentWarningNotification.details.trigger_speaker}
-            </div>
-          )}
+          🚨 警察出動！ 🚨
         </div>
       )}
       {content}
