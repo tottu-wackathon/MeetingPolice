@@ -19,35 +19,38 @@ class VonageClient:
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.vonage_api_key
-        # Check if we have JWT credentials (Application ID + Private Key)
         self.application_id = self.settings.vonage_application_id
         self.private_key_path = self.settings.vonage_private_key_path
-        self.api_secret = getattr(self.settings, 'vonage_api_secret', None)
         self.logger = logging.getLogger(__name__)
         self.client = None
         self.is_mock_mode = False
         
-        # Try JWT authentication first (preferred method)
-        if self.application_id and self._load_private_key():
-            self.logger.info("Using JWT authentication with Application ID and Private Key")
-            self.auth_method = "jwt"
-            self.is_mock_mode = False
-        # Fallback to OpenTok authentication
-        elif OPENTOK_AVAILABLE and self.api_key and self.api_secret and self.api_secret != self.api_key and len(self.api_key) > 5:
+        # Use JWT authentication only
+        if OPENTOK_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
-                # Test if credentials are valid by creating a test client
-                test_client = OpenTok(self.api_key, self.api_secret)
-                self.client = test_client
-                self.auth_method = "opentok"
-                self.logger.info("Vonage Video API (OpenTok) client initialized successfully")
+                # Initialize OpenTok client with API key (still needed for session creation)
+                self.client = OpenTok(self.api_key, self.api_key)  # Use API key as both key and secret for JWT mode
+                self.auth_method = "jwt"
+                self.is_mock_mode = False
+                self.logger.info("✅ Vonage Video API initialized with JWT authentication")
             except Exception as e:
-                self.logger.warning(f"OpenTok client initialization failed: {e}")
+                self.logger.warning(f"JWT authentication failed: {e}")
                 self.logger.info("Falling back to mock mode for development")
                 self.client = None
                 self.is_mock_mode = True
                 self.auth_method = "mock"
         else:
-            self.logger.warning("No valid authentication method available - using mock mode")
+            missing = []
+            if not OPENTOK_AVAILABLE:
+                missing.append("OpenTok SDK")
+            if not self.application_id:
+                missing.append("VONAGE_APPLICATION_ID")
+            if not self.api_key:
+                missing.append("VONAGE_API_KEY")
+            if not self._load_private_key():
+                missing.append("Private Key")
+            
+            self.logger.warning(f"Missing required credentials: {', '.join(missing)} - using mock mode")
             self.is_mock_mode = True
             self.auth_method = "mock"
 
