@@ -718,9 +718,6 @@ export function SessionPage() {
                       {isFinal && <span className="pill final-pill">AI確定</span>}
                     </header>
                     <p>{item.text || '[テキストなし]'}</p>
-                    <small style={{color: '#666', fontSize: '0.7em'}}>
-                      DEBUG: text="{item.text}", length={item.text?.length || 0}
-                    </small>
                   </article>
                 );
               })}
