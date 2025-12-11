@@ -247,11 +247,56 @@ export function VonageStage({
       publisherRef.current = publisher;
 
       console.log('[VonageStage] Attempting to connect with token:', token ? token.substring(0, 20) + '...' : 'undefined');
+      console.log('[VonageStage] Full token for debugging:', token);
+      
+      // トークンの形式を分析
+      try {
+        if (token) {
+          console.log('[VonageStage] Token analysis:');
+          console.log('  - Length:', token.length);
+          console.log('  - Starts with T1==:', token.startsWith('T1=='));
+          console.log('  - Contains dots (JWT format):', token.includes('.'));
+          
+          // JWTの場合、デコードして内容を確認
+          if (token.includes('.')) {
+            const parts = token.split('.');
+            console.log('  - JWT parts count:', parts.length);
+            if (parts.length >= 2) {
+              try {
+                const payload = JSON.parse(atob(parts[1]));
+                console.log('  - JWT payload:', payload);
+              } catch (e) {
+                console.log('  - JWT payload decode failed:', e);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[VonageStage] Token analysis failed:', e);
+      }
+      
       session.connect(token, (err: any) => {
         if (err) {
-          console.error('[VonageStage] Connection failed:', err);
+          console.error('[VonageStage] Connection failed with error:', err);
+          console.error('[VonageStage] Error code:', err.code);
+          console.error('[VonageStage] Error message:', err.message);
+          console.error('[VonageStage] Error name:', err.name);
+          console.error('[VonageStage] Full error object:', JSON.stringify(err, null, 2));
+          
+          // OpenTok エラーコードの詳細
+          const errorMessages: { [key: number]: string } = {
+            1004: 'Invalid token format - トークンの形式が無効です',
+            1005: 'Invalid session ID - セッションIDが無効です',
+            1006: 'Connect failed - 接続に失敗しました',
+            1026: 'Terms of service failure - 利用規約エラー',
+            2001: 'Authentication error - 認証エラー'
+          };
+          
+          const detailedMessage = errorMessages[err.code] || `Unknown error (${err.code})`;
+          console.error('[VonageStage] Detailed error:', detailedMessage);
+          
           setStatus('error');
-          setError(err.message || String(err));
+          setError(`${detailedMessage}: ${err.message || String(err)}`);
           return;
         }
         console.log('[VonageStage] Connected successfully, publishing...');

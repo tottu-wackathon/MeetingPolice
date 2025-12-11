@@ -15,6 +15,14 @@ except ImportError:
     Auth = None
     TokenOptions = None
 
+# OpenTok SDK for token generation (compatible with frontend)
+try:
+    from opentok import OpenTok
+    OPENTOK_AVAILABLE = True
+except ImportError:
+    OPENTOK_AVAILABLE = False
+    OpenTok = None
+
 from backend.config import get_settings
 
 
@@ -165,6 +173,24 @@ class VonageClient:
             token = self.video_client.generate_client_token(token_options)
             
             self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
+            self.logger.info("🔍 Generated token details: length=%d, starts_with=%s, contains_dots=%s", 
+                           len(token), token[:10] + "..." if len(token) > 10 else token, "." in token)
+            
+            # JWTの場合、ペイロードをデコードして確認
+            if "." in token:
+                try:
+                    import base64
+                    import json
+                    parts = token.split(".")
+                    if len(parts) >= 2:
+                        # Base64デコード（パディング調整）
+                        payload_b64 = parts[1]
+                        payload_b64 += "=" * (4 - len(payload_b64) % 4)  # パディング調整
+                        payload = json.loads(base64.b64decode(payload_b64))
+                        self.logger.info("🔍 JWT payload: %s", payload)
+                except Exception as e:
+                    self.logger.warning("Failed to decode JWT payload: %s", e)
+            
             return token
         except Exception as exc:
             self.logger.exception("❌ Vonage token generation failed for session_id=%s", session_id)
