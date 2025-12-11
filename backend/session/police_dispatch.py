@@ -125,7 +125,8 @@ class PoliceDispatchManager:
              current_time - state['last_triggered_time'] >= 5 * 60)  # 5分間隔
         )
         
-        self.logger.info(f"🔍 Police dispatch trigger check: is_active={state['is_active']}, last_triggered={state['last_triggered_time']}, time_since_last={time_since_last:.1f}s if time_since_last else 'None', should_trigger={should_trigger}")
+        time_since_last_str = f"{time_since_last:.1f}s" if time_since_last is not None else "None"
+        self.logger.info(f"🔍 Police dispatch trigger check: is_active={state['is_active']}, last_triggered={state['last_triggered_time']}, time_since_last={time_since_last_str}, should_trigger={should_trigger}")
         
         if should_trigger:
             self.logger.info("🚨 POLICE DISPATCH TRIGGERED!")
