@@ -28,6 +28,10 @@ export function SessionPage() {
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
 
+  // 警察出動とアライメント警告の状態管理
+  const [policeDispatchNotification, setPoliceDispatchNotification] = useState<any>(null);
+  const [alignmentWarningNotification, setAlignmentWarningNotification] = useState<any>(null);
+
   // useTranscriptsフックを使用してマイクアクセスと文字起こしを処理
   const { transcripts } = useTranscripts(
     session?.meetingId,
@@ -47,7 +51,56 @@ export function SessionPage() {
         return [...prev, { index, text, speaker, category, alignment, method, is_final }];
       });
     },
-    isMuted // ミュート状態を渡す
+    isMuted, // ミュート状態を渡す
+    (payload) => {
+      // 警察出動通知を受信
+      if (payload.type === 'police_dispatch') {
+        console.log('🚨 Police dispatch received in SessionPage:', payload);
+        setPoliceDispatchNotification(payload);
+        setShowPoliceWarning(true);
+        
+        // 15秒後に自動で非表示
+        setTimeout(() => {
+          setShowPoliceWarning(false);
+          setPoliceDispatchNotification(null);
+        }, 15000);
+        
+        // 音声アラート
+        playVoiceAlert('警察出動が要請されました！会議の進行を確認してください！');
+      } else if (payload.type === 'police_dispatch_off') {
+        // 警察出動解除通知を受信
+        console.log('🟢 Police dispatch OFF received in SessionPage:', payload);
+        setShowPoliceWarning(false);
+        setPoliceDispatchNotification(null);
+        
+        // 解除通知を一時的に表示
+        setAlignmentWarningNotification({
+          ...payload,
+          message: payload.message || '🟢 警察出動が解除されました'
+        });
+        
+        // 5秒後に自動で非表示
+        setTimeout(() => {
+          setAlignmentWarningNotification(null);
+        }, 5000);
+        
+        // 音声アラート
+        playVoiceAlert('警察出動が解除されました。会議が正常に進行しています。');
+      }
+    },
+    (payload) => {
+      // アライメント警告を受信
+      console.log('⚠️ Alignment warning received in SessionPage:', payload);
+      setAlignmentWarningNotification(payload);
+      
+      // 5秒後に自動で非表示
+      setTimeout(() => {
+        setAlignmentWarningNotification(null);
+      }, 5000);
+      
+      // 音声アラート
+      playVoiceAlert('議題から逸脱した発言が続いています');
+    }
   );
   
   // poc_satominと同じ警告機能
@@ -361,14 +414,21 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts.map((item, index) => (
-                  <article key={item.timestamp + index} className="transcript-item">
+                {transcripts.map((item, arrayIndex) => (
+                  <article 
+                    key={item.index !== undefined ? `transcript-${item.index}` : `${item.timestamp}-${arrayIndex}`} 
+                    className={`transcript-item ${item.isPartial ? 'partial' : 'final'}`}
+                  >
                     <header>
                       <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
-                      <span>{item.timestamp}</span>
-                      {item.isPartial && <span className="pill">部分</span>}
+                      <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                      {item.isPartial && <span className="pill partial-pill">更新中</span>}
+                      {!item.isPartial && <span className="pill final-pill">確定</span>}
                     </header>
-                    <p>{item.transcript}</p>
+                    <p className={item.isPartial ? 'partial-text' : 'final-text'}>
+                      {item.transcript}
+                      {item.isPartial && <span className="cursor">|</span>}
+                    </p>
                   </article>
                 ))}
                 {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
@@ -721,6 +781,7 @@ export function SessionPage() {
           right: '0',
           margin: '0 auto',
           width: 'fit-content',
+          maxWidth: '90vw',
           zIndex: 9999,
           padding: '30px 50px',
           backgroundColor: '#ff1744',
@@ -730,9 +791,62 @@ export function SessionPage() {
           fontWeight: 'bold',
           boxShadow: '0 12px 32px rgba(255, 23, 68, 0.6)',
           animation: 'pulse 1s ease-in-out infinite',
-          border: '6px solid #fff'
+          border: '6px solid #fff',
+          textAlign: 'center'
         }}>
-          🚨 警察出動！ 🚨
+          <div>🚨 警察出動！ 🚨</div>
+          {policeDispatchNotification && (
+            <div style={{ 
+              fontSize: '0.6em', 
+              marginTop: '10px', 
+              opacity: 0.9,
+              lineHeight: '1.3'
+            }}>
+              <div>{policeDispatchNotification.message}</div>
+              {policeDispatchNotification.details && (
+                <div style={{ fontSize: '0.8em', marginTop: '5px' }}>
+                  アライメント: {policeDispatchNotification.alignment_score}% | 
+                  発言者: {policeDispatchNotification.details.trigger_speaker} | 
+                  低アライメント回数: {policeDispatchNotification.details.low_alignment_count}回
+                </div>
+              )}
+              {policeDispatchNotification.dispatch_id && (
+                <div style={{ fontSize: '0.7em', marginTop: '5px', opacity: 0.8 }}>
+                  出動ID: {policeDispatchNotification.dispatch_id}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {alignmentWarningNotification && (
+        <div style={{
+          position: 'fixed',
+          top: '100px',
+          right: '20px',
+          zIndex: 9998,
+          padding: '20px 30px',
+          backgroundColor: '#ff9800',
+          color: 'white',
+          borderRadius: '12px',
+          fontSize: '1.2em',
+          fontWeight: 'bold',
+          boxShadow: '0 8px 24px rgba(255, 152, 0, 0.5)',
+          border: '3px solid #fff',
+          maxWidth: '400px'
+        }}>
+          <div>⚠️ {alignmentWarningNotification.message}</div>
+          {alignmentWarningNotification.details && (
+            <div style={{ 
+              fontSize: '0.8em', 
+              marginTop: '8px', 
+              opacity: 0.9 
+            }}>
+              アライメント: {alignmentWarningNotification.alignment_score}% | 
+              発言者: {alignmentWarningNotification.details.trigger_speaker}
+            </div>
+          )}
         </div>
       )}
       {content}

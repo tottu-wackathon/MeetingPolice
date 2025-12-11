@@ -176,12 +176,14 @@ class TranscribeStream:
                         last_chunk_time = current_time
                     await asyncio.sleep(0.1)
         
-        # Start streaming
-        logger.info("Starting transcribe stream...")
+        # Start streaming with speaker identification
+        logger.info("Starting transcribe stream with speaker identification...")
         stream = await client.start_stream_transcription(
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
+            enable_speaker_identification=True,
+            number_of_speakers=5,  # Maximum number of speakers to identify
         )
         
         # Create event handler
@@ -195,14 +197,34 @@ class TranscribeStream:
                     results = transcript_event.transcript.results
                     for result in results:
                         if result.alternatives:
-                            transcript = result.alternatives[0].transcript
+                            alternative = result.alternatives[0]
+                            transcript = alternative.transcript
                             if transcript and transcript.strip():
-                                logger.info("Transcribe result: %s (partial: %s)", transcript, result.is_partial)
+                                # Extract speaker information from items
+                                speaker_label = None
+                                speaker_counts = {}
+                                
+                                # Count speaker labels in items
+                                if hasattr(alternative, 'items') and alternative.items:
+                                    for item in alternative.items:
+                                        if hasattr(item, 'speaker_label') and item.speaker_label:
+                                            label = item.speaker_label
+                                            speaker_counts[label] = speaker_counts.get(label, 0) + 1
+                                
+                                # Use the most frequent speaker label
+                                if speaker_counts:
+                                    speaker_label = max(speaker_counts, key=speaker_counts.get)
+                                
+                                logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
+                                          transcript, result.is_partial, speaker_label)
+                                
                                 self.callback({
                                     "transcript": transcript.strip(),
                                     "is_partial": result.is_partial,
+                                    "speaker_label": speaker_label,
                                     "start_time": getattr(result, 'start_time', None),
                                     "end_time": getattr(result, 'end_time', None),
+                                    "result_id": getattr(result, 'result_id', None),
                                 })
                 except Exception as e:
                     logger.error("Error handling transcript event: %s", e)
@@ -266,6 +288,10 @@ class TranscribeStream:
                 MediaEncoding="pcm",
                 MediaSampleRateHertz=16000,
                 AudioStream=_QueueAudioStream(audio_queue),
+                Settings={
+                    'ShowSpeakerLabels': True,
+                    'MaxSpeakerLabels': 5
+                }
             )
             
             stream = response.get("TranscriptResultStream")
@@ -283,16 +309,34 @@ class TranscribeStream:
                     alternatives = result.get("Alternatives") or []
                     if not alternatives:
                         continue
-                    text = (alternatives[0].get("Transcript") or "").strip()
+                    
+                    alternative = alternatives[0]
+                    text = (alternative.get("Transcript") or "").strip()
                     if not text:
                         continue
                     
-                    logger.info("boto3 transcribe result: %s", text)
+                    # Extract speaker information from items
+                    speaker_label = None
+                    speaker_counts = {}
+                    items = alternative.get("Items", [])
+                    
+                    for item in items:
+                        label = item.get("SpeakerLabel")
+                        if label:
+                            speaker_counts[label] = speaker_counts.get(label, 0) + 1
+                    
+                    # Use the most frequent speaker label
+                    if speaker_counts:
+                        speaker_label = max(speaker_counts, key=speaker_counts.get)
+                    
+                    logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
                     payload = {
                         "transcript": text,
                         "is_partial": result.get("IsPartial", False),
+                        "speaker_label": speaker_label,
                         "start_time": result.get("StartTime"),
                         "end_time": result.get("EndTime"),
+                        "result_id": result.get("ResultId"),
                     }
                     on_transcript(payload)
                     

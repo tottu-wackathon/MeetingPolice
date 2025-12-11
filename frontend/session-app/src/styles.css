@@ -857,4 +857,60 @@ audio {
   75% {
     transform: rotate(15deg);
   }
+}/* ===== 文字
+起こし関連のスタイル ===== */
+.transcript-item.partial {
+  opacity: 0.8;
+  border-left: 3px solid #ffaa00;
+}
+
+.transcript-item.final {
+  opacity: 1;
+  border-left: 3px solid #00ff00;
+}
+
+.partial-text {
+  color: #ffaa00;
+  font-style: italic;
+}
+
+.final-text {
+  color: #00ff00;
+}
+
+.cursor {
+  animation: blink 1s infinite;
+  color: #ffaa00;
+  font-weight: bold;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.partial-pill {
+  background-color: #ffaa00 !important;
+  color: #000 !important;
+  animation: pulse 2s infinite;
+}
+
+.final-pill {
+  background-color: #00ff00 !important;
+  color: #000 !important;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* 話者継続の視覚的フィードバック */
+.transcript-item {
+  transition: all 0.3s ease;
+}
+
+.transcript-item:hover {
+  background-color: rgba(0, 255, 255, 0.1);
 }

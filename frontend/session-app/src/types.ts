@@ -93,4 +93,5 @@ export type LiveTranscript = {
   timestamp: string;
   speaker?: string;
   isPartial?: boolean;
+  index?: number;
 };

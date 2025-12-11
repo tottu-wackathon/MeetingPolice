@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,6 +9,23 @@ from backend.poc import router as poc_router
 from backend.poc_satomin import router as poc_satomin_router
 
 settings = get_settings()
+
+# ログ設定を強化
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('meeting_police.log', encoding='utf-8')
+    ]
+)
+
+# Lambda関数呼び出し専用のログレベルを設定
+lambda_logger = logging.getLogger('backend.services.lambda_client')
+lambda_logger.setLevel(logging.INFO)
+
+session_logger = logging.getLogger('backend.session.controller')
+session_logger.setLevel(logging.INFO)
 
 app = FastAPI(title="MeetingPolice API")
 

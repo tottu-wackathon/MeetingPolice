@@ -17,6 +17,7 @@ from backend.services.transcribe_stream import TranscribeStream
 from backend.services.comprehend_utils import analyze_sentiment
 from backend.services.bedrock_utils import classify_transcript_segments, _guess_category
 from backend.services.repository import MeetingRepository
+from backend.services.lambda_client import LambdaClient
 from backend.utils.auth_aws import get_session
 from backend.utils.time_utils import now_iso
 from backend.config import get_settings
@@ -27,6 +28,7 @@ class SessionController:
         self.vonage = VonageClient()
         self.transcribe = TranscribeStream()
         self.repository = repository or MeetingRepository()
+        self.lambda_client = LambdaClient()
         self.logger = logging.getLogger(__name__)
         self.settings = get_settings()
         self._classification_index = 1
@@ -136,30 +138,18 @@ class SessionController:
                         return
                         
                     is_partial = result.get("is_partial", False)
+                    speaker_label = result.get("speaker_label")
+                    result_id = result.get("result_id", f"result_{len(session_data['pending_results'])}")
                     
-                    # Create transcript entry
-                    entry = {
-                        "type": "transcript",
-                        "meeting_id": meeting_id,
-                        "timestamp": now_iso(),
-                        "transcript": transcript,
-                        "speaker": "Speaker 1",  # Simple speaker assignment
-                        "sentiment": "NEUTRAL",
-                        "is_partial": is_partial,
-                        "index": session_data["next_entry_index"]
-                    }
+                    # Get friendly speaker name
+                    raw_speaker = self._normalize_raw_label(speaker_label)
+                    friendly_speaker = self._speaker_name(session_data, raw_speaker)
                     
-                    if not is_partial:
-                        session_data["next_entry_index"] += 1
-                    
-                    # Send to WebSocket
-                    asyncio.create_task(websocket.send_json(entry))
-                    
-                    # Trigger classification for final results
-                    if not is_partial:
-                        asyncio.create_task(self._classify_and_send_realtime(
-                            websocket, meeting_id, transcript, "Speaker 1", entry["index"]
-                        ))
+                    # Handle result with speaker continuity
+                    asyncio.create_task(self._handle_result(
+                        session_data, result_id, friendly_speaker, raw_speaker, 
+                        transcript, not is_partial, websocket
+                    ))
                         
                 except Exception as e:
                     self.logger.error("Error processing transcript result: %s", e)
@@ -298,58 +288,112 @@ class SessionController:
         return session_data["speaker_labels"][key]
 
     async def _handle_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
-        """Handle transcription result."""
-        entry = session_data["pending_results"].get(result_id)
+        """Handle transcription result with speaker continuity."""
         
-        if not entry:
-            entry = {
+        # Initialize current_transcript if not exists
+        if "current_transcript" not in session_data:
+            session_data["current_transcript"] = None
+        
+        current_transcript = session_data["current_transcript"]
+        
+        # Check if this is a continuation of the same speaker
+        is_same_speaker = (
+            current_transcript is not None and 
+            current_transcript["raw_speaker"] == raw_label and
+            not current_transcript.get("is_finalized", False)
+        )
+        
+        if is_same_speaker:
+            # Update existing transcript for the same speaker
+            current_transcript["text"] = text
+            current_transcript["result_id"] = result_id
+            current_transcript["is_partial"] = not is_final
+            
+            # Send updated transcript (same entry, updated text)
+            await websocket.send_json({
+                "type": "transcript",
+                "action": "update",  # Indicate this is an update
+                "meeting_id": session_data["meeting_id"],
+                "timestamp": current_transcript["timestamp"],
+                "transcript": text,
+                "sentiment": analyze_sentiment(text).get("Sentiment", "NEUTRAL"),
+                "is_partial": not is_final,
+                "speaker": speaker_label,
+                "index": current_transcript["index"],
+            })
+            
+        else:
+            # Finalize previous transcript if exists
+            if current_transcript and not current_transcript.get("is_finalized", False):
+                await self._finalize_current_transcript(session_data, websocket)
+            
+            # Create new transcript entry for new speaker or first transcript
+            new_entry = {
                 "index": session_data["next_entry_index"],
                 "speaker": speaker_label,
                 "raw_speaker": raw_label,
                 "result_id": result_id,
                 "text": text,
                 "timestamp": now_iso(),
+                "is_partial": not is_final,
+                "is_finalized": False,
             }
-            session_data["next_entry_index"] += 1
-            session_data["pending_results"][result_id] = entry
             
-            # Send transcript
+            session_data["next_entry_index"] += 1
+            session_data["current_transcript"] = new_entry
+            
+            # Send new transcript
             await websocket.send_json({
                 "type": "transcript",
+                "action": "new",  # Indicate this is a new entry
                 "meeting_id": session_data["meeting_id"],
-                "timestamp": entry["timestamp"],
+                "timestamp": new_entry["timestamp"],
                 "transcript": text,
                 "sentiment": analyze_sentiment(text).get("Sentiment", "NEUTRAL"),
                 "is_partial": not is_final,
                 "speaker": speaker_label,
-            })
-        else:
-            # Update existing entry
-            entry["text"] = text
-            entry["speaker"] = speaker_label
-            entry["raw_speaker"] = raw_label
-            
-            # Send updated transcript
-            await websocket.send_json({
-                "type": "transcript", 
-                "meeting_id": session_data["meeting_id"],
-                "timestamp": entry["timestamp"],
-                "transcript": text,
-                "sentiment": analyze_sentiment(text).get("Sentiment", "NEUTRAL"),
-                "is_partial": not is_final,
-                "speaker": speaker_label,
+                "index": new_entry["index"],
             })
         
+        # If this is a final result, finalize the transcript
         if is_final:
-            # Finalize result and start classification
-            await self._finalize_result(session_data, result_id, websocket)
-            await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, entry["index"])
+            await self._finalize_current_transcript(session_data, websocket)
 
-    async def _finalize_result(self, session_data: dict, result_id: str, websocket: WebSocket) -> None:
-        """Finalize a transcription result."""
-        entry = session_data["pending_results"].pop(result_id, None)
-        if entry:
-            session_data["transcripts"].append(entry)
+    async def _finalize_current_transcript(self, session_data: dict, websocket: WebSocket) -> None:
+        """Finalize the current transcript and trigger classification."""
+        current_transcript = session_data.get("current_transcript")
+        if not current_transcript or current_transcript.get("is_finalized", False):
+            return
+        
+        # Mark as finalized
+        current_transcript["is_finalized"] = True
+        
+        # Add to transcripts history
+        session_data["transcripts"].append(current_transcript.copy())
+        
+        # Send finalized transcript
+        await websocket.send_json({
+            "type": "transcript",
+            "action": "finalize",
+            "meeting_id": session_data["meeting_id"],
+            "timestamp": current_transcript["timestamp"],
+            "transcript": current_transcript["text"],
+            "sentiment": analyze_sentiment(current_transcript["text"]).get("Sentiment", "NEUTRAL"),
+            "is_partial": False,
+            "speaker": current_transcript["speaker"],
+            "index": current_transcript["index"],
+        })
+        
+        # Trigger classification for final result
+        await self._classify_and_send_realtime(
+            websocket, 
+            session_data["meeting_id"], 
+            current_transcript["text"], 
+            current_transcript["speaker"], 
+            current_transcript["index"]
+        )
+
+
 
     async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
         """Perform real-time classification like poc_satomin."""
@@ -385,6 +429,9 @@ class SessionController:
             "type": "realtime_classification",
             "payload": result_quick
         })
+        
+        # Check for police dispatch trigger (low alignment)
+        await self._check_police_dispatch_trigger(session_data, alignment_quick, text, speaker, websocket)
         
         # Step 2: Background Bedrock analysis
         task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
@@ -439,6 +486,9 @@ class SessionController:
                     "action": "update",
                     "payload": result_ai
                 })
+                
+                # Check for police dispatch trigger with AI result
+                await self._check_police_dispatch_trigger(session_data, alignment_ai, text, speaker, websocket)
                 
                 self.logger.info(f"Bedrock分析完了: {speaker} - {text} → [{category_ai}] {alignment_ai}%")
             else:
@@ -504,5 +554,296 @@ class SessionController:
         alignment = min(100, int(30 + (match_ratio * 70)))
         
         return alignment
+
+    async def _check_police_dispatch_trigger(self, session_data: dict, alignment_score: int, text: str, speaker: str, websocket: WebSocket) -> None:
+        """
+        警察出動のトリガーをチェックし、必要に応じてLambda関数を呼び出す
+        
+        Args:
+            session_data: セッションデータ
+            alignment_score: アライメントスコア
+            text: 発言内容
+            speaker: 発言者
+            websocket: WebSocketコネクション
+        """
+        meeting_id = session_data["meeting_id"]
+        
+        # 警察出動の閾値設定
+        POLICE_DISPATCH_THRESHOLD = 20  # アライメントスコアが20%以下で警察出動
+        LOW_ALIGNMENT_THRESHOLD = 30    # 低アライメントの閾値
+        
+        # セッションデータに警告履歴を初期化
+        if "alert_history" not in session_data:
+            session_data["alert_history"] = []
+        if "low_alignment_count" not in session_data:
+            session_data["low_alignment_count"] = 0
+        if "police_dispatched" not in session_data:
+            session_data["police_dispatched"] = False
+        
+        # 低アライメントの発言をカウント
+        if alignment_score <= LOW_ALIGNMENT_THRESHOLD:
+            session_data["low_alignment_count"] += 1
+            
+            # 警告履歴に追加
+            alert_entry = {
+                "timestamp": now_iso(),
+                "alignment_score": alignment_score,
+                "text": text,
+                "speaker": speaker,
+                "alert_level": "WARNING" if alignment_score > POLICE_DISPATCH_THRESHOLD else "CRITICAL"
+            }
+            session_data["alert_history"].append(alert_entry)
+        
+        # 警察出動の条件チェック
+        should_dispatch = (
+            alignment_score <= POLICE_DISPATCH_THRESHOLD and 
+            not session_data["police_dispatched"] and
+            session_data["low_alignment_count"] >= 3  # 3回以上の低アライメント発言
+        )
+        
+        if should_dispatch:
+            self.logger.warning("🚨 警察出動トリガー発動！")
+            self.logger.warning(f"  - Meeting ID: {meeting_id}")
+            self.logger.warning(f"  - Alignment Score: {alignment_score}%")
+            self.logger.warning(f"  - Low Alignment Count: {session_data['low_alignment_count']}")
+            self.logger.warning(f"  - Speaker: {speaker}")
+            self.logger.warning(f"  - Text: {text}")
+            
+            # 警察出動フラグを設定
+            session_data["police_dispatched"] = True
+            
+            # Lambda関数呼び出し用のデータを準備
+            meeting_data = {
+                "meeting_id": meeting_id,
+                "meeting_title": session_data.get("agenda_text", "Unknown Meeting"),
+                "participant_count": len(session_data.get("speaker_labels", {})),
+                "alert_level": "CRITICAL",
+                "alert_reason": f"Alignment score dropped to {alignment_score}% (threshold: {POLICE_DISPATCH_THRESHOLD}%)",
+                "timestamp": now_iso(),
+                "duration_minutes": self._calculate_meeting_duration(session_data),
+                "alignment_score": alignment_score,
+                "recent_transcript": text,
+                "speaker": speaker,
+                "low_alignment_count": session_data["low_alignment_count"],
+                "alert_history": session_data["alert_history"][-5:]  # 直近5件の警告履歴
+            }
+            
+            # Lambda関数を非同期で呼び出し
+            try:
+                # 呼び出し前のコンテキストログ
+                self.logger.info("🚨 SESSION CONTROLLER - Initiating Police Dispatch Lambda Call")
+                self.logger.info(f"📋 Meeting Context:")
+                self.logger.info(f"  - Meeting ID: {meeting_id}")
+                self.logger.info(f"  - Trigger Speaker: {speaker}")
+                self.logger.info(f"  - Alignment Score: {alignment_score}%")
+                self.logger.info(f"  - Low Alignment Count: {session_data['low_alignment_count']}")
+                self.logger.info(f"  - Trigger Text: {text[:100]}...")
+                self.logger.info(f"  - Meeting Duration: {meeting_data['duration_minutes']} minutes")
+                
+                dispatch_result = await asyncio.to_thread(
+                    self.lambda_client.invoke_police_dispatch,
+                    meeting_data
+                )
+                
+                # 成功ログ
+                self.logger.info("✅ SESSION CONTROLLER - Police Dispatch Lambda Call Completed")
+                self.logger.info(f"📊 Result Summary:")
+                self.logger.info(f"  - Status Code: {dispatch_result.get('statusCode')}")
+                self.logger.info(f"  - Dispatch ID: {dispatch_result.get('dispatchId')}")
+                self.logger.info(f"  - LED Status: {dispatch_result.get('led_status')}")
+                self.logger.info(f"  - Execution Time: {dispatch_result.get('execution_time_ms')}ms")
+                self.logger.info(f"  - Message: {dispatch_result.get('message')}")
+                
+                # WebSocketで警察出動通知を送信
+                await websocket.send_json({
+                    "type": "police_dispatch",
+                    "meeting_id": meeting_id,
+                    "timestamp": now_iso(),
+                    "alert_level": "CRITICAL",
+                    "alignment_score": alignment_score,
+                    "message": "🚨 警察出動が要請されました！会議の進行を確認してください。",
+                    "dispatch_id": dispatch_result.get("dispatchId"),
+                    "lambda_status": dispatch_result.get("statusCode"),
+                    "execution_time_ms": dispatch_result.get("execution_time_ms"),
+                    "details": {
+                        "trigger_text": text,
+                        "trigger_speaker": speaker,
+                        "low_alignment_count": session_data["low_alignment_count"],
+                        "threshold": POLICE_DISPATCH_THRESHOLD
+                    }
+                })
+                
+            except Exception as e:
+                # エラーログ
+                self.logger.error("❌ SESSION CONTROLLER - Police Dispatch Lambda Call Failed")
+                self.logger.error(f"📋 Error Context:")
+                self.logger.error(f"  - Meeting ID: {meeting_id}")
+                self.logger.error(f"  - Trigger Speaker: {speaker}")
+                self.logger.error(f"  - Alignment Score: {alignment_score}%")
+                self.logger.error(f"  - Exception: {str(e)}")
+                self.logger.exception("Full exception details:")
+                
+                # エラーでもWebSocketで通知
+                await websocket.send_json({
+                    "type": "police_dispatch",
+                    "meeting_id": meeting_id,
+                    "timestamp": now_iso(),
+                    "alert_level": "CRITICAL",
+                    "alignment_score": alignment_score,
+                    "message": "🚨 警察出動が要請されましたが、通知システムでエラーが発生しました。",
+                    "error": str(e),
+                    "details": {
+                        "trigger_text": text,
+                        "trigger_speaker": speaker,
+                        "low_alignment_count": session_data["low_alignment_count"],
+                        "threshold": POLICE_DISPATCH_THRESHOLD
+                    }
+                })
+        
+        # 警察出動解除の条件チェック（アライメントスコアが改善された場合）
+        POLICE_DISPATCH_OFF_THRESHOLD = 50  # アライメントスコアが50%以上で警察出動解除
+        should_dispatch_off = (
+            alignment_score >= POLICE_DISPATCH_OFF_THRESHOLD and 
+            session_data["police_dispatched"]  # 現在警察出動中の場合のみ
+        )
+        
+        if should_dispatch_off:
+            self.logger.info("🟢 警察出動解除トリガー発動！")
+            self.logger.info(f"  - Meeting ID: {meeting_id}")
+            self.logger.info(f"  - Alignment Score: {alignment_score}%")
+            self.logger.info(f"  - Speaker: {speaker}")
+            self.logger.info(f"  - Text: {text}")
+            
+            # 警察出動フラグを解除
+            session_data["police_dispatched"] = False
+            session_data["low_alignment_count"] = 0  # カウントもリセット
+            
+            # Lambda関数呼び出し用のデータを準備
+            meeting_data = {
+                "meeting_id": meeting_id,
+                "meeting_title": session_data.get("agenda_text", "Unknown Meeting"),
+                "timestamp": now_iso(),
+                "alignment_score": alignment_score,
+                "recent_transcript": text,
+                "speaker": speaker,
+            }
+            
+            # Lambda関数を非同期で呼び出し（LED消灯）
+            try:
+                # 呼び出し前のコンテキストログ
+                self.logger.info("🟢 SESSION CONTROLLER - Initiating Police Dispatch OFF Lambda Call")
+                self.logger.info(f"📋 Meeting Context:")
+                self.logger.info(f"  - Meeting ID: {meeting_id}")
+                self.logger.info(f"  - Recovery Speaker: {speaker}")
+                self.logger.info(f"  - Improved Alignment Score: {alignment_score}%")
+                self.logger.info(f"  - Recovery Text: {text[:100]}...")
+                self.logger.info(f"  - OFF Threshold: {POLICE_DISPATCH_OFF_THRESHOLD}%")
+                
+                dispatch_off_result = await asyncio.to_thread(
+                    self.lambda_client.invoke_police_dispatch_off,
+                    meeting_data
+                )
+                
+                # 成功ログ
+                self.logger.info("✅ SESSION CONTROLLER - Police Dispatch OFF Lambda Call Completed")
+                self.logger.info(f"📊 Result Summary:")
+                self.logger.info(f"  - Status Code: {dispatch_off_result.get('statusCode')}")
+                self.logger.info(f"  - Dispatch ID: {dispatch_off_result.get('dispatchId')}")
+                self.logger.info(f"  - LED Status: {dispatch_off_result.get('led_status')}")
+                self.logger.info(f"  - Execution Time: {dispatch_off_result.get('execution_time_ms')}ms")
+                self.logger.info(f"  - Message: {dispatch_off_result.get('message')}")
+                
+                # WebSocketで警察出動解除通知を送信
+                await websocket.send_json({
+                    "type": "police_dispatch_off",
+                    "meeting_id": meeting_id,
+                    "timestamp": now_iso(),
+                    "alert_level": "INFO",
+                    "alignment_score": alignment_score,
+                    "message": "🟢 警察出動が解除されました。会議が正常に進行しています。",
+                    "dispatch_id": dispatch_off_result.get("dispatchId"),
+                    "lambda_status": dispatch_off_result.get("statusCode"),
+                    "execution_time_ms": dispatch_off_result.get("execution_time_ms"),
+                    "led_status": "OFF",
+                    "details": {
+                        "trigger_text": text,
+                        "trigger_speaker": speaker,
+                        "threshold": POLICE_DISPATCH_OFF_THRESHOLD
+                    }
+                })
+                
+            except Exception as e:
+                # エラーログ
+                self.logger.error("❌ SESSION CONTROLLER - Police Dispatch OFF Lambda Call Failed")
+                self.logger.error(f"📋 Error Context:")
+                self.logger.error(f"  - Meeting ID: {meeting_id}")
+                self.logger.error(f"  - Recovery Speaker: {speaker}")
+                self.logger.error(f"  - Alignment Score: {alignment_score}%")
+                self.logger.error(f"  - Exception: {str(e)}")
+                self.logger.exception("Full exception details:")
+                
+                # エラーでもWebSocketで通知
+                await websocket.send_json({
+                    "type": "police_dispatch_off",
+                    "meeting_id": meeting_id,
+                    "timestamp": now_iso(),
+                    "alert_level": "INFO",
+                    "alignment_score": alignment_score,
+                    "message": "🟢 警察出動解除が要請されましたが、システムでエラーが発生しました。",
+                    "error": str(e),
+                    "led_status": "ERROR",
+                    "details": {
+                        "trigger_text": text,
+                        "trigger_speaker": speaker,
+                        "threshold": POLICE_DISPATCH_OFF_THRESHOLD
+                    }
+                })
+        
+        # 警告レベルの通知（警察出動には至らないが注意が必要）
+        elif alignment_score <= LOW_ALIGNMENT_THRESHOLD and session_data["low_alignment_count"] % 2 == 0:
+            await websocket.send_json({
+                "type": "alignment_warning",
+                "meeting_id": meeting_id,
+                "timestamp": now_iso(),
+                "alert_level": "WARNING",
+                "alignment_score": alignment_score,
+                "message": f"⚠️ 議題から逸脱した発言が続いています（{session_data['low_alignment_count']}回目）",
+                "details": {
+                    "trigger_text": text,
+                    "trigger_speaker": speaker,
+                    "low_alignment_count": session_data["low_alignment_count"],
+                    "threshold": LOW_ALIGNMENT_THRESHOLD
+                }
+            })
+
+    def _calculate_meeting_duration(self, session_data: dict) -> int:
+        """
+        会議の継続時間を計算（分単位）
+        
+        Args:
+            session_data: セッションデータ
+            
+        Returns:
+            会議の継続時間（分）
+        """
+        if not session_data.get("transcripts"):
+            return 0
+            
+        try:
+            from datetime import datetime
+            
+            # 最初と最後の発言のタイムスタンプを取得
+            first_transcript = session_data["transcripts"][0]
+            last_transcript = session_data["transcripts"][-1]
+            
+            first_time = datetime.fromisoformat(first_transcript["timestamp"].replace("Z", "+00:00"))
+            last_time = datetime.fromisoformat(last_transcript["timestamp"].replace("Z", "+00:00"))
+            
+            duration = (last_time - first_time).total_seconds() / 60
+            return max(1, int(duration))  # 最低1分
+            
+        except Exception as e:
+            self.logger.error(f"会議時間計算エラー: {e}")
+            return 1
 
 

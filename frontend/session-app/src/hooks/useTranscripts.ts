@@ -18,6 +18,8 @@ export function useTranscripts(
   meetingId?: string,
   onClassification?: (payload: any) => void,
   isMuted?: boolean,
+  onPoliceDispatch?: (payload: any) => void,
+  onAlignmentWarning?: (payload: any) => void,
 ) {
   const [transcripts, setTranscripts] = useState<LiveTranscript[]>([]);
   const isMutedRef = useRef(isMuted);
@@ -69,6 +71,27 @@ export function useTranscripts(
               return;
             }
             
+            // 警察出動通知の処理
+            if (payload?.type === 'police_dispatch') {
+              console.log('🚨 [useTranscripts] Police dispatch notification received:', payload);
+              onPoliceDispatch?.(payload);
+              return;
+            }
+            
+            // アライメント警告の処理
+            if (payload?.type === 'alignment_warning') {
+              console.log('⚠️ [useTranscripts] Alignment warning received:', payload);
+              onAlignmentWarning?.(payload);
+              return;
+            }
+            
+            // 警察出動解除通知の処理
+            if (payload?.type === 'police_dispatch_off') {
+              console.log('🟢 [useTranscripts] Police dispatch OFF notification received:', payload);
+              onPoliceDispatch?.(payload);  // 同じコールバックを使用して解除通知も処理
+              return;
+            }
+            
             // Only process if there's actual transcript content
             if (payload.transcript && payload.transcript.trim()) {
               const entry: LiveTranscript = {
@@ -78,9 +101,33 @@ export function useTranscripts(
                 timestamp: payload.timestamp ?? new Date().toISOString(),
                 speaker: payload.speaker,
                 isPartial: payload.is_partial,
+                index: payload.index,
               };
-              console.log('[useTranscripts] Adding transcript entry:', entry);
-              setTranscripts((prev) => [entry, ...prev].slice(0, 50));
+              
+              const action = payload.action || 'new';
+              console.log(`[useTranscripts] Processing transcript (${action}):`, entry);
+              
+              setTranscripts((prev) => {
+                if (action === 'update' && entry.index !== undefined) {
+                  // Update existing entry with same index
+                  const updated = prev.map(item => 
+                    item.index === entry.index ? { ...item, ...entry } : item
+                  );
+                  console.log('[useTranscripts] Updated existing transcript at index:', entry.index);
+                  return updated;
+                } else if (action === 'finalize' && entry.index !== undefined) {
+                  // Finalize existing entry
+                  const updated = prev.map(item => 
+                    item.index === entry.index ? { ...item, ...entry, isPartial: false } : item
+                  );
+                  console.log('[useTranscripts] Finalized transcript at index:', entry.index);
+                  return updated;
+                } else {
+                  // Add new entry (action === 'new' or no action specified)
+                  console.log('[useTranscripts] Adding new transcript entry');
+                  return [entry, ...prev].slice(0, 50);
+                }
+              });
             }
           } catch (err) {
             console.warn('Failed to parse transcript payload', err);
