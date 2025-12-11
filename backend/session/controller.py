@@ -132,6 +132,25 @@ class SessionController:
         self.logger.info("Validation success meeting_id=%s", meeting_id)
         return {"meeting_id": meeting.meeting_id, "status": meeting.status, "title": meeting.title}
 
+    def set_meeting_agenda(self, meeting_id: str, agenda_text: str) -> dict:
+        """Set agenda text for a meeting (kept in session_data for alignment checks)."""
+        meeting = self.repository.get_meeting(meeting_id)
+        if not meeting:
+            raise ValueError("Meeting not found")
+
+        session_data = self.session_data.get(meeting_id)
+        if session_data is None:
+            session_data = {
+                "meeting_id": meeting_id,
+                "agenda_text": agenda_text or meeting.title,
+            }
+            self.session_data[meeting_id] = session_data
+        else:
+            session_data["agenda_text"] = agenda_text or meeting.title
+
+        self.logger.info("✅ Agenda text set for meeting_id=%s (length=%d)", meeting_id, len(agenda_text or ""))
+        return {"meeting_id": meeting_id, "agenda_preview": (agenda_text or "")[:120]}
+
     async def stream_transcripts(self, websocket: WebSocket, meeting_id: str) -> None:
         meeting = self.repository.get_meeting(meeting_id)
         if not meeting:

@@ -37,8 +37,11 @@ def validate_meeting(meeting_id: str):
 
 
 @router.post("/meetings/{meeting_id}/agenda")
-async def upload_agenda(meeting_id: str, file: UploadFile = File(...)):
+async def upload_agenda(meeting_id: str, file: UploadFile | None = File(None)):
     try:
+        if file is None:
+            raise HTTPException(status_code=400, detail="ファイルが添付されていません")
+
         if not file.content_type or not file.content_type.startswith('text/'):
             raise HTTPException(status_code=400, detail="テキストファイルのみアップロード可能です")
         
