@@ -29,6 +29,19 @@ export function useVonageSession({
   
   const sessionRef = useRef<OT.Session | null>(null);
 
+  // Log initialization
+  useEffect(() => {
+    console.log('='.repeat(60));
+    console.log('🎬 VONAGE SESSION HOOK INITIALIZATION');
+    console.log('='.repeat(60));
+    console.log('📋 Configuration:');
+    console.log('  - Enabled:', enabled);
+    console.log('  - API Key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'Not provided');
+    console.log('  - Session ID:', sessionId ? `${sessionId.substring(0, 20)}...` : 'Not provided');
+    console.log('  - Token:', token ? `${token.substring(0, 20)}... (length: ${token.length})` : 'Not provided');
+    console.log('  - OpenTok SDK Available:', !!window.OT);
+  }, [apiKey, sessionId, token, enabled]);
+
   // Initialize session
   useEffect(() => {
     if (!enabled) {
@@ -65,21 +78,26 @@ export function useVonageSession({
       return;
     }
 
-    console.log('[useVonageSession] Initializing session...', {
-      apiKey: apiKey.substring(0, 8) + '...',
-      sessionId: sessionId.substring(0, 20) + '...',
-      tokenLength: token.length
-    });
+    console.log('📋 Step 1: Initializing Vonage Session');
+    console.log('  - API Key:', apiKey.substring(0, 8) + '...');
+    console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
+    console.log('  - Token Length:', token.length);
+    
     setStatus('connecting');
     setError(null);
 
+    console.log('📋 Step 2: Creating OT Session Object');
     const newSession = OT.initSession(apiKey, sessionId);
+    console.log('  ✅ OT.initSession() completed');
+    
     sessionRef.current = newSession;
     setSession(newSession);
 
     // Session event handlers
     newSession.on('sessionConnected', (event: OT.SessionConnectEvent) => {
-      console.log('[useVonageSession] Session connected:', event);
+      console.log('✅ SESSION CONNECTED EVENT');
+      console.log('  - Event:', event);
+      console.log('  - Connection ID:', event.target?.connection?.connectionId);
       setStatus('connected');
       setError(null);
       
@@ -91,7 +109,8 @@ export function useVonageSession({
         role: 'host'
       }]);
       
-      console.log('[useVonageSession] Local participant added:', localConnectionId);
+      console.log('  - Local participant added:', localConnectionId);
+      console.log('✅ Session setup complete - ready for video!');
     });
 
     newSession.on('sessionDisconnected', (event: OT.SessionDisconnectEvent) => {
@@ -191,9 +210,14 @@ export function useVonageSession({
     });
 
     // Connect to session
+    console.log('📋 Step 3: Connecting to Vonage Session');
     newSession.connect(token, (connectError) => {
       if (connectError) {
-        console.error('[useVonageSession] Connection failed:', connectError);
+        console.error('❌ CONNECTION FAILED');
+        console.error('  - Error Code:', connectError.code);
+        console.error('  - Error Message:', connectError.message);
+        console.error('  - Full Error:', connectError);
+        
         setStatus('error');
         
         // Provide more user-friendly error messages
@@ -201,29 +225,38 @@ export function useVonageSession({
         switch (connectError.code) {
           case 1004:
             errorMessage = 'APIキーが無効です。バックエンドのVonage設定を確認してください。';
+            console.error('  🔧 Diagnosis: Invalid API Key - check backend Vonage configuration');
             break;
           case 1005:
             errorMessage = 'セッションIDが無効です。新しいセッションを作成してください。';
+            console.error('  🔧 Diagnosis: Invalid Session ID - session may not exist');
             break;
           case 1006:
             errorMessage = 'トークンが無効または期限切れです。再度参加してください。';
+            console.error('  🔧 Diagnosis: Invalid or expired token');
             break;
           case 1026:
             errorMessage = 'ネットワーク接続を確認してください。';
+            console.error('  🔧 Diagnosis: Network connectivity issue');
             break;
           case 1013:
             errorMessage = 'セッションが見つかりません。正しいミーティングIDを確認してください。';
+            console.error('  🔧 Diagnosis: Session not found');
             break;
           case 1014:
             errorMessage = 'セッションの参加者数が上限に達しています。';
+            console.error('  🔧 Diagnosis: Session capacity exceeded');
             break;
           default:
             errorMessage = `接続エラー (${connectError.code}): ${connectError.message}`;
+            console.error('  🔧 Diagnosis: Unknown error');
         }
         
         setError(errorMessage);
       } else {
-        console.log('[useVonageSession] Connected successfully');
+        console.log('✅ CONNECTION SUCCESSFUL');
+        console.log('  - Session connected successfully');
+        console.log('  - Waiting for sessionConnected event...');
       }
     });
 

@@ -37,17 +37,37 @@ class SessionController:
         self.session_data = {}  # meeting_id -> session data
 
     def _build_session_payload(self, meeting, session_id: str, token: str) -> dict:
+        api_key = self.vonage.settings.vonage_api_key or "mock_api_key"
+        
         payload = {
             "meeting_id": meeting.meeting_id,
             "title": meeting.title,
             "status": meeting.status,
             "session_id": session_id,
             "token": token,
-            "api_key": self.vonage.settings.vonage_api_key,
+            "api_key": api_key,
         }
-        self.logger.info("📦 Session payload built: meeting_id=%s, session_id=%s, has_token=%s, has_api_key=%s", 
-                         payload["meeting_id"], payload["session_id"][:20] + "...", 
-                         bool(payload["token"]), bool(payload["api_key"]))
+        
+        self.logger.info("=" * 50)
+        self.logger.info("📦 BUILDING SESSION PAYLOAD")
+        self.logger.info("=" * 50)
+        self.logger.info("Meeting ID: %s", payload["meeting_id"])
+        self.logger.info("Title: %s", payload["title"])
+        self.logger.info("Status: %s", payload["status"])
+        self.logger.info("Session ID: %s...", payload["session_id"][:20])
+        self.logger.info("Token: %s... (length: %d)", payload["token"][:20], len(payload["token"]))
+        self.logger.info("API Key: %s...", payload["api_key"][:8] if payload["api_key"] else "None")
+        
+        # Check if we're sending mock data
+        is_mock = (api_key == "mock_api_key" or 
+                  session_id.startswith("1_MX40") and "mock" in session_id or
+                  token.startswith("T1=="))
+        
+        if is_mock:
+            self.logger.warning("⚠️  MOCK DATA in payload - video will not work!")
+        else:
+            self.logger.info("✅ Real Vonage credentials in payload")
+        
         return payload
 
     def create_meeting(self, title: str, scheduled_for: str | None = None) -> dict:
@@ -67,19 +87,39 @@ class SessionController:
         return self._build_session_payload(meeting, session_id, token)
 
     def create_session_token(self, meeting_id: str) -> dict:
+        self.logger.info("=" * 60)
+        self.logger.info("🎫 CREATE SESSION TOKEN REQUEST")
+        self.logger.info("=" * 60)
+        self.logger.info("Meeting ID: %s", meeting_id)
+        
+        # Step 1: Get meeting
+        self.logger.info("📋 Step 1: Retrieving meeting from database")
         meeting = self.repository.get_meeting(meeting_id)
         if not meeting:
-            self.logger.warning("Join requested for missing meeting_id=%s", meeting_id)
+            self.logger.error("❌ Meeting not found: %s", meeting_id)
             raise ValueError("Meeting not found")
+        self.logger.info("✅ Meeting found: %s", meeting.title)
 
+        # Step 2: Get or create session
         session_id = meeting.session_id
         if not session_id:
+            self.logger.info("📋 Step 2: Creating new Vonage session")
             session = self.vonage.create_session(meeting_id)
             session_id = session["session_id"]
+            self.logger.info("✅ Session created: %s...", session_id[:20])
+            
+            self.logger.info("📋 Step 3: Updating meeting with session ID")
             meeting = self.repository.update_meeting(meeting_id, session_id=session_id, status="live")
+            self.logger.info("✅ Meeting updated in database")
+        else:
+            self.logger.info("📋 Step 2: Using existing session ID: %s...", session_id[:20])
 
+        # Step 3: Generate token
+        self.logger.info("📋 Step 4: Generating client token")
         token = self.vonage.generate_token(session_id=session_id)
-        self.logger.info("Join token issued meeting_id=%s session_id=%s", meeting_id, session_id)
+        self.logger.info("✅ Token generated successfully")
+        
+        self.logger.info("📋 Step 5: Building response payload")
         return self._build_session_payload(meeting, session_id, token)
 
     def validate_meeting(self, meeting_id: str) -> dict:

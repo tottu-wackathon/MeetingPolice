@@ -56,6 +56,12 @@ async function request<T>(path: string, init?: RequestInit, addJsonHeader = true
 }
 
 export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
+  console.log('='.repeat(50));
+  console.log('🌐 API CALL: JOIN MEETING');
+  console.log('='.repeat(50));
+  console.log('Meeting ID:', meetingId);
+  console.log('Endpoint: POST /session/meetings/${meetingId}/join');
+  
   const response = await request<{
     meeting_id: string;
     title: string;
@@ -65,6 +71,27 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
     api_key: string;
   }>(`/session/meetings/${meetingId}/join`, { method: 'POST' });
 
+  console.log('✅ API RESPONSE RECEIVED');
+  console.log('Response data:');
+  console.log('  - Meeting ID:', response.meeting_id);
+  console.log('  - Title:', response.title);
+  console.log('  - Status:', response.status);
+  console.log('  - Session ID:', response.session_id ? `${response.session_id.substring(0, 20)}...` : 'None');
+  console.log('  - Token:', response.token ? `${response.token.substring(0, 20)}... (length: ${response.token.length})` : 'None');
+  console.log('  - API Key:', response.api_key ? `${response.api_key.substring(0, 8)}...` : 'None');
+
+  const videoEnabled = Boolean(response.api_key && response.session_id && response.token);
+  console.log('Video Enabled:', videoEnabled);
+
+  // Check for mock data
+  const isMockData = response.api_key === 'mock_api_key' || 
+                    response.session_id?.includes('mock') || 
+                    response.token?.startsWith('T1==');
+  if (isMockData) {
+    console.warn('⚠️  MOCK DATA DETECTED in API response');
+    console.warn('  This indicates the backend is running in mock mode');
+  }
+
   return {
     meetingId: response.meeting_id,
     title: response.title,
@@ -72,7 +99,7 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
     sessionId: response.session_id,
     token: response.token,
     apiKey: response.api_key,
-    videoEnabled: Boolean(response.api_key && response.session_id && response.token),
+    videoEnabled,
     participants: [
       { id: 'me', name: 'You', role: 'host', isSpeaking: false },
       { id: 'cohost', name: 'Co-host', role: 'guest', isSpeaking: true },

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     vonage_application_id: str = ""
     vonage_api_key: str = ""
     vonage_private_key_path: str = "secrets/vonage_private.key"
+    vonage_mock_mode: bool = False
 
     # Frontend static Vonage session (optional)
     vite_vonage_app_id: str | None = None
