@@ -127,9 +127,16 @@ class SessionController:
                 return_when=asyncio.FIRST_COMPLETED
             )
             
-            # Cancel remaining tasks
+            # Cancel remaining tasks safely
             for task in pending:
-                task.cancel()
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        self.logger.warning(f"Task cleanup error: {e}")
                 
         except Exception as e:
             self.logger.error("Transcription failed for meeting_id=%s: %s", meeting_id, e)
@@ -138,7 +145,14 @@ class SessionController:
             # Wait for all Bedrock tasks to complete (same as poc_satomin)
             if session_data["pending_bedrock_tasks"]:
                 self.logger.info(f"Waiting for {len(session_data['pending_bedrock_tasks'])} Bedrock tasks...")
-                await asyncio.gather(*session_data["pending_bedrock_tasks"], return_exceptions=True)
+                # Safely wait for tasks with proper exception handling
+                for task in list(session_data["pending_bedrock_tasks"]):
+                    try:
+                        if not task.done():
+                            await task
+                    except Exception as e:
+                        self.logger.warning(f"Bedrock task failed during cleanup: {e}")
+                session_data["pending_bedrock_tasks"].clear()
             
             # Cleanup
             if meeting_id in self.session_data:
@@ -567,9 +581,12 @@ class SessionController:
         await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
         
         # Step 2: Background Bedrock analysis (same as poc_satomin)
-        task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
-        session_data["pending_bedrock_tasks"].add(task)
-        task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+        try:
+            task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
+            session_data["pending_bedrock_tasks"].add(task)
+            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+        except Exception as e:
+            self.logger.warning(f"Failed to create Bedrock task: {e}")
 
     async def _classify_with_bedrock_session(self, session_data: dict, text: str, speaker: str, index: int) -> None:
         """poc_satomin-style Bedrock analysis in background."""

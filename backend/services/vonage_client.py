@@ -36,21 +36,29 @@ class VonageClient:
                          self.private_key_path)
         
         # Initialize Vonage Video API with JWT authentication
+        self.logger.info("🔍 Checking initialization requirements...")
+        self.logger.info("VONAGE_AVAILABLE=%s, has_app_id=%s, has_api_key=%s, private_key_loaded=%s", 
+                         VONAGE_AVAILABLE, bool(self.application_id), bool(self.api_key), self._load_private_key())
+        
         if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
+                self.logger.info("🔧 Creating Vonage Auth object...")
                 # Initialize Vonage client with JWT authentication
                 auth = Auth(
                     application_id=self.application_id,
                     private_key=self.private_key_content
                 )
+                self.logger.info("🔧 Creating Vonage client...")
                 self.client = Vonage(auth=auth)
+                self.logger.info("🔧 Getting video client...")
                 self.video_client = self.client.video
                 self.auth_method = "jwt"
                 self.is_mock_mode = False
                 self.logger.info("✅ Vonage Video API initialized with Python Server SDK v4.7.2 and JWT authentication")
             except Exception as e:
-                self.logger.warning(f"Vonage Video API initialization failed: {e}")
-                self.logger.info("Falling back to mock mode for development")
+                self.logger.error(f"❌ Vonage Video API initialization failed: {e}")
+                self.logger.exception("Full error details:")
+                self.logger.info("🔄 Falling back to mock mode for development")
                 self.client = None
                 self.video_client = None
                 self.is_mock_mode = True
