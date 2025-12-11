@@ -83,6 +83,18 @@ export function useTranscripts(
               setTranscripts((prev) => {
                 const key = payload.result_id ?? `idx-${payload.index}`;
                 
+                // Check for duplicate text in recent entries
+                const isDuplicate = prev.slice(-3).some(item => 
+                  item.transcript === payload.text && 
+                  item.speaker === payload.speaker &&
+                  payload.text && payload.text.length > 10
+                );
+                
+                if (isDuplicate) {
+                  console.log('[useTranscripts] Duplicate text detected, skipping:', payload.text);
+                  return prev;
+                }
+                
                 const updateExisting = (items: LiveTranscript[]) =>
                   items.map((item) => {
                     const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
@@ -114,44 +126,44 @@ export function useTranscripts(
                 
                 if (action === 'append') {
                   if (exists) {
+                    // If entry with same key already exists, update it instead of adding new
                     return updateExisting(prev);
                   }
                   
-                  // Check if we should merge with the last entry (same speaker and result_id)
+                  // Check if we should update the last entry instead (similar text and speaker)
                   const lastEntry = prev[prev.length - 1];
-                  const lastTimestamp = lastEntry ? new Date(lastEntry.timestamp).getTime() : 0;
-                  const currentTimestamp = new Date(payload.timestamp || new Date().toISOString()).getTime();
-                  const timeDiff = (currentTimestamp - lastTimestamp) / 1000; // seconds
-                  
-                  const shouldMergeWithLast = (
-                    lastEntry && 
-                    lastEntry.speaker === payload.speaker &&
-                    payload.speaker !== '判別中...' &&  // Don't merge unknown speakers
-                    payload.speaker !== '発話中...' &&  // Don't merge speaking indicators
-                    (lastEntry as any).result_id === payload.result_id &&  // Same utterance
-                    timeDiff < 5  // Less than 5 seconds gap
-                  );
-                  
-                  if (shouldMergeWithLast) {
-                    console.log('[useTranscripts] Merging with last entry:', {
-                      lastText: lastEntry.transcript,
-                      newText: payload.text,
-                      speaker: payload.speaker
-                    });
+                  if (lastEntry && 
+                      lastEntry.speaker === payload.speaker &&
+                      payload.text && lastEntry.transcript &&
+                      payload.text.length > 5 && lastEntry.transcript.length > 5) {
                     
-                    // Update the last entry instead of adding new one
-                    const updatedItems = [...prev];
-                    updatedItems[updatedItems.length - 1] = {
-                      ...lastEntry,
-                      transcript: payload.text || '',
-                      timestamp: payload.timestamp || lastEntry.timestamp,
-                      // Update additional properties
-                      ...(payload as any),
-                    } as LiveTranscript;
+                    const newText = payload.text;
+                    const lastText = lastEntry.transcript;
                     
-                    return updatedItems;
+                    // Check if new text is an extension or similar to last text
+                    if (newText.length > lastText.length && 
+                        (newText.includes(lastText.substring(0, Math.min(20, lastText.length))) ||
+                         lastText.includes(newText.substring(0, Math.min(20, newText.length))))) {
+                      
+                      console.log('[useTranscripts] Updating last entry instead of adding new:', {
+                        lastText: lastText,
+                        newText: newText
+                      });
+                      
+                      // Update the last entry
+                      const updatedItems = [...prev];
+                      updatedItems[updatedItems.length - 1] = {
+                        ...lastEntry,
+                        transcript: newText,
+                        timestamp: payload.timestamp || lastEntry.timestamp,
+                        ...(payload as any),
+                      } as LiveTranscript;
+                      
+                      return updatedItems;
+                    }
                   }
                   
+                  // Add new entry
                   const newEntry: LiveTranscript = {
                     meetingId,
                     transcript: payload.text || '',

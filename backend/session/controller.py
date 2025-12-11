@@ -132,7 +132,7 @@ class SessionController:
             audio_queue = queue.Queue()
             
             def on_transcript_result(result):
-                """Callback for transcription results with utterance tracking."""
+                """Callback for transcription results with simple utterance tracking."""
                 try:
                     transcript = result.get("transcript", "").strip()
                     if not transcript:
@@ -140,58 +140,37 @@ class SessionController:
                         
                     is_partial = result.get("is_partial", False)
                     
-                    # Track ongoing utterance with consistent result_id
+                    # Simple utterance tracking based on partial/final status
                     if not hasattr(session_data, 'current_utterance_id'):
                         session_data['current_utterance_id'] = None
-                        session_data['last_partial_text'] = ""
-                        session_data['last_final_time'] = 0
                     
-                    current_time = time.time()
+                    # Debug: Log the raw result structure
+                    self.logger.info(f"Raw transcribe result: {result}")
                     
-                    # Determine if this is a new utterance or continuation
-                    if is_partial:
-                        # For partial results, check if this is continuation of previous utterance
-                        last_text = session_data['last_partial_text']
-                        is_continuation = False
-                        
-                        # Check time gap - if more than 2 seconds since last final result, start new utterance
-                        time_gap = current_time - session_data.get('last_final_time', 0)
-                        
-                        if time_gap > 2.0:
-                            # Long pause - definitely new utterance
-                            is_continuation = False
-                        elif last_text and len(last_text) > 0:
-                            # Check if current text is an extension of previous text
-                            # More lenient matching for Japanese text
-                            if len(transcript) >= len(last_text):
-                                # New text is longer - likely continuation
-                                is_continuation = True
-                            elif len(transcript) >= len(last_text) * 0.8:
-                                # Similar length - check for common content
-                                common_chars = sum(1 for a, b in zip(last_text, transcript) if a == b)
-                                if common_chars >= len(last_text) * 0.6:
-                                    is_continuation = True
-                        
-                        if session_data['current_utterance_id'] is None or not is_continuation:
-                            # New utterance started
-                            session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
-                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']} (text: '{transcript}', time_gap: {time_gap:.1f}s)")
-                        else:
-                            self.logger.info(f"Continuing utterance: {session_data['current_utterance_id']} (text: '{transcript}')")
-                        
-                        session_data['last_partial_text'] = transcript
-                        result_id = session_data['current_utterance_id']
+                    # Use result_id from the transcription service if available
+                    aws_result_id = result.get("result_id") or result.get("ResultId")
+                    
+                    if aws_result_id:
+                        result_id = f"aws_{aws_result_id}"
+                        self.logger.info(f"Using AWS result_id: {aws_result_id}")
                     else:
-                        # Final result - use current utterance ID if available
-                        if session_data['current_utterance_id'] is not None:
+                        # Simple fallback: one utterance ID until final result
+                        if is_partial:
+                            # For partial results, maintain current utterance ID
+                            if session_data.get('current_utterance_id') is None:
+                                session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
+                                self.logger.info(f"Created new utterance ID: {session_data['current_utterance_id']}")
                             result_id = session_data['current_utterance_id']
+                            self.logger.info(f"Using existing utterance ID: {result_id}")
                         else:
-                            result_id = f"session_{session_data['next_entry_index']}"
-                        
-                        # Record final result time and reset for next utterance
-                        session_data['last_final_time'] = current_time
-                        session_data['current_utterance_id'] = None
-                        session_data['last_partial_text'] = ""
+                            # For final results, use current ID and reset
+                            if session_data.get('current_utterance_id') is not None:
+                                result_id = session_data['current_utterance_id']
+                                session_data['current_utterance_id'] = None  # Reset for next utterance
+                                self.logger.info(f"Final result, using and resetting ID: {result_id}")
+                            else:
+                                result_id = f"session_{session_data['next_entry_index']}"
+                                self.logger.info(f"No current ID, creating new: {result_id}")
                     
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
@@ -341,40 +320,56 @@ class SessionController:
         return session_data["speaker_labels"][key]
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
-        """Handle a single transcription result with continuous speaker consolidation."""
+        """Handle a single transcription result with duplicate prevention."""
+        
+        # Check for duplicate text in recent transcripts to prevent multiple entries
+        recent_transcripts = session_data["transcripts"][-3:] if session_data["transcripts"] else []
+        for recent in recent_transcripts:
+            if (recent.get("text") == text and 
+                recent.get("speaker") == speaker_label and
+                len(text) > 10):  # Only check for substantial text
+                self.logger.info(f"Duplicate text detected, skipping: '{text}'")
+                return
+        
         entry = session_data["pending_results"].get(result_id)
         
         if not entry:
-            # Check if we should append to the last transcript instead of creating new entry
+            # Check if we should update the last transcript instead of creating new
             last_transcript = session_data["transcripts"][-1] if session_data["transcripts"] else None
             
-            # More strict conditions for appending to avoid blocking new utterances
-            should_append_to_last = (
-                last_transcript and 
+            # If the last transcript has very similar text and same speaker, update it instead
+            if (last_transcript and 
                 last_transcript.get("speaker") == speaker_label and
-                speaker_label not in ["判別中...", "発話中..."] and  # Don't merge unknown speakers
-                not is_final and  # Only append partial results
-                last_transcript.get("result_id") == result_id  # Same result_id means same utterance
-            )
-            
-            if should_append_to_last:
-                # Update the last transcript entry instead of creating new one
-                last_transcript["text"] = text
-                last_transcript["timestamp"] = now_iso()
+                len(text) > 5 and len(last_transcript.get("text", "")) > 5):
                 
-                # Send update for the existing entry
-                await websocket.send_json({
-                    "type": "transcript",
-                    "action": "update",
-                    "payload": last_transcript
-                })
-                
-                # Store in pending_results for further updates
-                session_data["pending_results"][result_id] = last_transcript.copy()
-                self.logger.info(f"Appended to last transcript: '{text}' (speaker: {speaker_label}, result_id: {result_id})")
-                return
+                last_text = last_transcript.get("text", "")
+                # Check if new text is an extension of the last text
+                if (text.startswith(last_text[:len(last_text)//2]) or 
+                    last_text.startswith(text[:len(text)//2]) or
+                    len(text) > len(last_text)):  # New text is longer
+                    
+                    # Update the existing transcript
+                    last_transcript["text"] = text
+                    last_transcript["timestamp"] = now_iso()
+                    last_transcript["result_id"] = result_id
+                    
+                    # Send update
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "action": "update",
+                        "payload": last_transcript
+                    })
+                    
+                    # Store in pending_results for further updates
+                    session_data["pending_results"][result_id] = last_transcript.copy()
+                    self.logger.info(f"Updated last transcript: '{text}' (result_id: {result_id})")
+                    
+                    if is_final:
+                        await self._finalize_result_streaming(session_data, result_id, websocket)
+                        await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, last_transcript["index"])
+                    return
             
-            # New entry - append
+            # Create new entry
             entry = {
                 "index": session_data["next_entry_index"],
                 "speaker": speaker_label,
@@ -394,7 +389,7 @@ class SessionController:
                 "payload": self._public_payload(entry)
             })
         else:
-            # Update existing entry
+            # Update existing entry with same result_id
             # Update speaker if we got better information
             current_raw = entry.get("raw_speaker", "spk_unk")
             if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
@@ -408,7 +403,7 @@ class SessionController:
                     "payload": self._public_payload(entry)
                 })
 
-            # Check if text and speaker are the same (early return like poc_satomin)
+            # Check if text and speaker are the same (early return)
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
                     await self._finalize_result_streaming(session_data, result_id, websocket)
