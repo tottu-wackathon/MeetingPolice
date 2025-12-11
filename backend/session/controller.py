@@ -174,9 +174,9 @@ class SessionController:
                     
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
-                    # Use dynamic speaker detection (for now using Speaker 1, but can be enhanced)
-                    speaker_label = "Speaker 1"
-                    raw_speaker = "spk_1"
+                    # Extract speaker information from transcribe result
+                    raw_speaker = result.get("speaker_label", "spk_unk")
+                    speaker_label = self._speaker_name(session_data, raw_speaker)
                     
                     # Integrated transcription and analysis handling
                     asyncio.create_task(self._handle_integrated_result(
@@ -333,7 +333,10 @@ class SessionController:
             session_data['current_analysis_index'] = 1
         
         # Check if this is a new speaker or continuation
-        is_new_speaker = (session_data['current_analysis_speaker'] != speaker_label)
+        current_speaker = session_data.get('current_analysis_speaker')
+        is_new_speaker = (current_speaker != speaker_label)
+        
+        self.logger.info(f"Speaker check: current='{current_speaker}', new='{speaker_label}', is_new={is_new_speaker}, is_partial={is_partial}")
         
         if is_new_speaker or session_data['current_analysis_entry'] is None:
             # New speaker or first utterance - create new analysis entry

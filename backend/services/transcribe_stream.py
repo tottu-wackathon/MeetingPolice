@@ -182,6 +182,8 @@ class TranscribeStream:
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
+            enable_speaker_identification=True,  # Enable speaker identification
+            max_speaker_labels=10,  # Support up to 10 speakers
         )
         
         # Create event handler
@@ -197,10 +199,27 @@ class TranscribeStream:
                         if result.alternatives:
                             transcript = result.alternatives[0].transcript
                             if transcript and transcript.strip():
-                                logger.info("Transcribe result: %s (partial: %s)", transcript, result.is_partial)
+                                # Extract speaker information
+                                speaker_label = None
+                                if hasattr(result, 'speaker_labels') and result.speaker_labels:
+                                    # Get the most frequent speaker label from segments
+                                    speaker_counts = {}
+                                    for segment in result.speaker_labels.segments:
+                                        if hasattr(segment, 'speaker_label'):
+                                            label = segment.speaker_label
+                                            speaker_counts[label] = speaker_counts.get(label, 0) + 1
+                                    
+                                    if speaker_counts:
+                                        speaker_label = max(speaker_counts, key=speaker_counts.get)
+                                
+                                logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
+                                          transcript, result.is_partial, speaker_label)
+                                
                                 self.callback({
                                     "transcript": transcript.strip(),
                                     "is_partial": result.is_partial,
+                                    "speaker_label": speaker_label,
+                                    "result_id": getattr(result, 'result_id', None),
                                     "start_time": getattr(result, 'start_time', None),
                                     "end_time": getattr(result, 'end_time', None),
                                 })
@@ -265,6 +284,8 @@ class TranscribeStream:
                 LanguageCode=language_code,
                 MediaEncoding="pcm",
                 MediaSampleRateHertz=16000,
+                ShowSpeakerLabels=True,  # Enable speaker identification
+                MaxSpeakerLabels=10,     # Support up to 10 speakers
                 AudioStream=_QueueAudioStream(audio_queue),
             )
             
@@ -287,10 +308,26 @@ class TranscribeStream:
                     if not text:
                         continue
                     
-                    logger.info("boto3 transcribe result: %s", text)
+                    # Extract speaker information from boto3 result
+                    speaker_label = None
+                    items = alternatives[0].get("Items", [])
+                    if items:
+                        # Get the most frequent speaker from items
+                        speaker_counts = {}
+                        for item in items:
+                            if "Speaker" in item:
+                                speaker = item["Speaker"]
+                                speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
+                        
+                        if speaker_counts:
+                            speaker_label = max(speaker_counts, key=speaker_counts.get)
+                    
+                    logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
                     payload = {
                         "transcript": text,
                         "is_partial": result.get("IsPartial", False),
+                        "speaker_label": speaker_label,
+                        "result_id": result.get("ResultId"),
                         "start_time": result.get("StartTime"),
                         "end_time": result.get("EndTime"),
                     }
