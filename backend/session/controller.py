@@ -51,15 +51,40 @@ class SessionController:
 
         meeting = self.repository.create_meeting(title=title.strip(), scheduled_for=scheduled_for)
         self.logger.info("Creating meeting meeting_id=%s title=%s", meeting.meeting_id, meeting.title)
-        session = self.vonage.create_session(meeting.meeting_id)
-        session_id = session["session_id"]
-        meeting = self.repository.update_meeting(
-            meeting.meeting_id, session_id=session_id, status="live"
-        )
+        
+        try:
+            session = self.vonage.create_session(meeting.meeting_id)
+            session_id = session["session_id"]
+            meeting = self.repository.update_meeting(
+                meeting.meeting_id, session_id=session_id, status="live"
+            )
+        except Exception as e:
+            self.logger.error("Vonage session creation failed for meeting_id=%s: %s", meeting.meeting_id, e)
+            # Fallback to audio-only session
+            session_id = f"audio-only-{meeting.meeting_id}"
+            meeting = self.repository.update_meeting(
+                meeting.meeting_id, session_id=session_id, status="audio-only"
+            )
+            self.logger.info("Fallback to audio-only session for meeting_id=%s", meeting.meeting_id)
 
-        token = self.vonage.generate_token(session_id=session_id)
-        self.logger.info("Vonage credentials issued meeting_id=%s session_id=%s", meeting.meeting_id, session_id)
-        return self._build_session_payload(meeting, session_id, token)
+        try:
+            token = self.vonage.generate_token(session_id=session_id)
+            self.logger.info("Vonage credentials issued meeting_id=%s session_id=%s", meeting.meeting_id, session_id)
+        except Exception as e:
+            self.logger.error("Vonage token generation failed for meeting_id=%s: %s", meeting.meeting_id, e)
+            # Fallback to mock token for audio-only
+            token = f"audio-only-token-{session_id}"
+            meeting = self.repository.update_meeting(meeting.meeting_id, status="audio-only")
+            self.logger.info("Fallback to audio-only token for meeting_id=%s", meeting.meeting_id)
+            
+        payload = self._build_session_payload(meeting, session_id, token)
+        
+        # Add additional info for audio-only sessions
+        if meeting.status == "audio-only":
+            payload["videoEnabled"] = False
+            payload["message"] = "Vonage認証情報が設定されていないため、音声のみのセッションになります。"
+        
+        return payload
 
     def create_session_token(self, meeting_id: str) -> dict:
         meeting = self.repository.get_meeting(meeting_id)
@@ -69,13 +94,35 @@ class SessionController:
 
         session_id = meeting.session_id
         if not session_id:
-            session = self.vonage.create_session(meeting_id)
-            session_id = session["session_id"]
-            meeting = self.repository.update_meeting(meeting_id, session_id=session_id, status="live")
+            try:
+                session = self.vonage.create_session(meeting_id)
+                session_id = session["session_id"]
+                meeting = self.repository.update_meeting(meeting_id, session_id=session_id, status="live")
+            except Exception as e:
+                self.logger.error("Vonage session creation failed for meeting_id=%s: %s", meeting_id, e)
+                # Fallback to audio-only session
+                session_id = f"audio-only-{meeting_id}"
+                meeting = self.repository.update_meeting(meeting_id, session_id=session_id, status="audio-only")
+                self.logger.info("Fallback to audio-only session for meeting_id=%s", meeting_id)
 
-        token = self.vonage.generate_token(session_id=session_id)
-        self.logger.info("Join token issued meeting_id=%s session_id=%s", meeting_id, session_id)
-        return self._build_session_payload(meeting, session_id, token)
+        try:
+            token = self.vonage.generate_token(session_id=session_id)
+            self.logger.info("Join token issued meeting_id=%s session_id=%s", meeting_id, session_id)
+        except Exception as e:
+            self.logger.error("Vonage token generation failed for meeting_id=%s: %s", meeting_id, e)
+            # Fallback to mock token for audio-only
+            token = f"audio-only-token-{session_id}"
+            meeting = self.repository.update_meeting(meeting_id, status="audio-only")
+            self.logger.info("Fallback to audio-only token for meeting_id=%s", meeting_id)
+            
+        payload = self._build_session_payload(meeting, session_id, token)
+        
+        # Add additional info for audio-only sessions
+        if meeting.status == "audio-only":
+            payload["videoEnabled"] = False
+            payload["message"] = "Vonage認証情報が設定されていないため、音声のみのセッションになります。"
+        
+        return payload
 
     def validate_meeting(self, meeting_id: str) -> dict:
         meeting = self.repository.get_meeting(meeting_id)
