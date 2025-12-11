@@ -175,30 +175,7 @@ class SessionController:
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
                     # Extract speaker information from transcribe result
-                    raw_speaker = result.get("speaker_label")
-                    if not raw_speaker:
-                        # Fallback: use simple time-based speaker detection
-                        if not hasattr(session_data, 'fallback_speaker_state'):
-                            session_data['fallback_speaker_state'] = {
-                                'last_final_time': 0,
-                                'current_speaker': 'spk_0',
-                                'speaker_counter': 0
-                            }
-                        
-                        current_time = time.time()
-                        state = session_data['fallback_speaker_state']
-                        
-                        if not is_partial:
-                            time_gap = current_time - state['last_final_time']
-                            if time_gap > 4.0 and state['last_final_time'] > 0:  # 4 second gap for speaker change
-                                state['speaker_counter'] += 1
-                                state['current_speaker'] = f"spk_{state['speaker_counter']}"
-                                self.logger.info(f"Fallback speaker change after {time_gap:.1f}s gap -> {state['current_speaker']}")
-                            
-                            state['last_final_time'] = current_time
-                        
-                        raw_speaker = state['current_speaker']
-                    
+                    raw_speaker = result.get("speaker_label", "spk_0")  # Default to spk_0 if no speaker info
                     speaker_label = self._speaker_name(session_data, raw_speaker)
                     
                     # Integrated transcription and analysis handling
