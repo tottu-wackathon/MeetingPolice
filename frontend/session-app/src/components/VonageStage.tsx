@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Client, Session, Publisher } from '@vonage/client-sdk-video';
+// eslint-disable-next-line import/no-unresolved
+import OT from '@opentok/client';
 
 type Props = {
   apiKey: string;
@@ -96,15 +97,16 @@ export function VonageStage({
       return undefined;
     }
 
-    // Vonage Client SDK Video の確認
-    console.log('[VonageStage] Checking Vonage Client SDK Video availability:', { 
-      hasClient: !!Client,
-      hasSession: !!Session,
-      hasPublisher: !!Publisher
+    // グローバルなOTオブジェクトを確認
+    const OTClient: any = (window as any).OT || OT;
+    console.log('[VonageStage] Checking OT availability:', { 
+      hasWindowOT: !!(window as any).OT, 
+      hasImportedOT: !!OT, 
+      hasInitSession: !!OTClient?.initSession 
     });
     
-    if (!Client || !Session || !Publisher) {
-      console.log('[VonageStage] Vonage Client SDK Video not available');
+    if (!OTClient?.initSession) {
+      console.log('[VonageStage] OpenTok SDK not available - OT object or initSession method missing');
       setStatus('error');
       setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
@@ -120,9 +122,7 @@ export function VonageStage({
         apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
         sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined' 
       });
-      
-      const client = new Client();
-      const session = new Session(client, sessionId, { apiKey });
+      const session = OTClient.initSession(apiKey, sessionId);
       sessionRef.current = session;
       console.log('[VonageStage] Session created successfully');
 
@@ -235,7 +235,15 @@ export function VonageStage({
         },
       };
 
-      const publisher = new Publisher(client, publisherContainer, publisherOptions);
+      const publisher = OTClient.initPublisher(
+        publisherContainer,
+        publisherOptions,
+        (err: any) => {
+          if (err) {
+            setError(err.message || String(err));
+          }
+        },
+      );
       
       publisher.on('accessDenied', (err: any) => {
         console.error('[VonageStage] Publisher access denied:', err);
