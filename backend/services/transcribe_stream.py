@@ -182,8 +182,8 @@ class TranscribeStream:
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
-            enable_speaker_identification=True,  # Enable speaker identification
-            max_speaker_labels=10,  # Support up to 10 speakers
+            # Note: Speaker identification is not available in streaming mode
+            # We'll use alternative approach for speaker detection
         )
         
         # Create event handler
@@ -215,6 +215,22 @@ class TranscribeStream:
                                 logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
                                           transcript, result.is_partial, speaker_label)
                                 
+                                # Simple speaker detection based on timing gaps
+                                import time
+                                current_time = time.time()
+                                
+                                if not result.is_partial:
+                                    # Check for speaker change based on time gap
+                                    time_gap = current_time - self.last_final_time
+                                    if time_gap > 3.0 and self.last_final_time > 0:  # 3 second gap suggests speaker change
+                                        self.speaker_counter += 1
+                                        self.current_speaker = f"spk_{self.speaker_counter}"
+                                        logger.info(f"Detected speaker change after {time_gap:.1f}s gap -> {self.current_speaker}")
+                                    
+                                    self.last_final_time = current_time
+                                
+                                speaker_label = self.current_speaker
+                                
                                 self.callback({
                                     "transcript": transcript.strip(),
                                     "is_partial": result.is_partial,
@@ -227,6 +243,11 @@ class TranscribeStream:
                     logger.error("Error handling transcript event: %s", e)
         
         handler = MyEventHandler(stream.output_stream, on_transcript)
+        
+        # Add simple speaker detection state
+        handler.last_final_time = 0
+        handler.current_speaker = "spk_0"
+        handler.speaker_counter = 0
         
         # Process audio and results concurrently
         try:
@@ -284,8 +305,8 @@ class TranscribeStream:
                 LanguageCode=language_code,
                 MediaEncoding="pcm",
                 MediaSampleRateHertz=16000,
-                ShowSpeakerLabels=True,  # Enable speaker identification
-                MaxSpeakerLabels=10,     # Support up to 10 speakers
+                # Note: ShowSpeakerLabels is not supported in streaming mode
+                # Using simple time-based speaker detection instead
                 AudioStream=_QueueAudioStream(audio_queue),
             )
             
@@ -308,19 +329,26 @@ class TranscribeStream:
                     if not text:
                         continue
                     
-                    # Extract speaker information from boto3 result
-                    speaker_label = None
-                    items = alternatives[0].get("Items", [])
-                    if items:
-                        # Get the most frequent speaker from items
-                        speaker_counts = {}
-                        for item in items:
-                            if "Speaker" in item:
-                                speaker = item["Speaker"]
-                                speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
+                    # Simple speaker detection for boto3 (streaming doesn't support speaker labels)
+                    if not hasattr(self, 'boto3_last_final_time'):
+                        self.boto3_last_final_time = 0
+                        self.boto3_current_speaker = "spk_0"
+                        self.boto3_speaker_counter = 0
+                    
+                    import time
+                    current_time = time.time()
+                    
+                    if not result.get("IsPartial", False):
+                        # Check for speaker change based on time gap
+                        time_gap = current_time - self.boto3_last_final_time
+                        if time_gap > 3.0 and self.boto3_last_final_time > 0:  # 3 second gap
+                            self.boto3_speaker_counter += 1
+                            self.boto3_current_speaker = f"spk_{self.boto3_speaker_counter}"
+                            logger.info(f"boto3: Detected speaker change after {time_gap:.1f}s gap -> {self.boto3_current_speaker}")
                         
-                        if speaker_counts:
-                            speaker_label = max(speaker_counts, key=speaker_counts.get)
+                        self.boto3_last_final_time = current_time
+                    
+                    speaker_label = self.boto3_current_speaker
                     
                     logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
                     payload = {
