@@ -42,15 +42,31 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final } = payload;
       
       setRealtimeClassifications((prev) => {
-        // デバッグ用ログ
-        console.log('[SessionPage] Realtime classification received:', { index, text: text?.slice(0, 30), speaker, category, alignment, method, is_final });
+        // デバッグ用ログ - 受信したpayloadの詳細を表示
+        console.log('[SessionPage] Realtime classification received - RAW payload:', payload);
+        console.log('[SessionPage] Extracted values:', { 
+          index, 
+          text: text ? `"${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"` : 'undefined',
+          textLength: text?.length || 0,
+          speaker, 
+          category, 
+          alignment, 
+          method, 
+          is_final 
+        });
+        
+        // textが存在しない場合の警告
+        if (!text || text.length === 0) {
+          console.warn('[SessionPage] WARNING: Received classification with empty or missing text!');
+          return prev; // 空のテキストの場合は追加しない
+        }
         
         // 同じindexの全てのエントリを削除（古いキーワード結果を除去）
         const filteredPrev = prev.filter(item => item.index !== index);
         
         // 新しいエントリを追加
         const newEntry = { index, text, speaker, category, alignment, method, is_final };
-        console.log('[SessionPage] Replaced entries for index', index, 'with new entry:', newEntry);
+        console.log('[SessionPage] Adding new entry:', newEntry);
         
         return [...filteredPrev, newEntry];
       });

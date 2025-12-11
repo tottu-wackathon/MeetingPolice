@@ -133,7 +133,13 @@ class PoliceDispatchManager:
             }
             
             # バックグラウンドでLambda呼び出し
-            asyncio.create_task(self._invoke_police_dispatch_async(meeting_data))
+            self.logger.info(f"🚀 Creating Lambda task for police dispatch: {meeting_data}")
+            try:
+                task = asyncio.create_task(self._invoke_police_dispatch_async(meeting_data))
+                self.logger.info(f"✅ Lambda task created successfully: {task}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to create Lambda task: {e}")
+                self.logger.exception("Lambda task creation error:")
             
             # セッションキューに警察出動通知を送信
             await session_data["queue"].put({
@@ -206,10 +212,13 @@ class PoliceDispatchManager:
     async def _invoke_police_dispatch_async(self, meeting_data: dict) -> None:
         """警察出動Lambda関数を非同期で呼び出し"""
         try:
+            self.logger.info(f"🚀 Starting Lambda invocation for police dispatch: {meeting_data}")
+            self.logger.info(f"🔧 Lambda client available: {self.lambda_client is not None}")
             result = await asyncio.to_thread(self.lambda_client.invoke_police_dispatch, meeting_data)
             self.logger.info(f"🚨 Police dispatch Lambda result: {result}")
         except Exception as e:
             self.logger.error(f"❌ Police dispatch Lambda failed: {e}")
+            self.logger.exception("Police dispatch Lambda detailed error:")
 
     async def _invoke_police_dispatch_off_async(self, meeting_data: dict) -> None:
         """警察出動解除Lambda関数を非同期で呼び出し"""

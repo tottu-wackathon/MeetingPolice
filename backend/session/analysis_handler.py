@@ -77,7 +77,9 @@ class AnalysisHandler:
         }
 
         # すぐにクライアントに通知
-        await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
+        queue_message_quick = {"type": "realtime_classification", "payload": result_quick}
+        await session_data["queue"].put(queue_message_quick)
+        self.logger.info(f"📤 WebSocketキューに送信（キーワード）: {queue_message_quick}")
         
         # Step 2: バックグラウンドでBedrockに送信（条件付き）
         if force_bedrock:
@@ -147,7 +149,9 @@ class AnalysisHandler:
                 }
                 
                 # 更新をクライアントに通知
-                await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_ai})
+                queue_message = {"type": "realtime_classification", "action": "update", "payload": result_ai}
+                await session_data["queue"].put(queue_message)
+                self.logger.info(f"📤 WebSocketキューに送信: {queue_message}")
                 
                 self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
                 
