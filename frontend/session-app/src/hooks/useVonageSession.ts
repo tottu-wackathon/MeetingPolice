@@ -69,15 +69,20 @@ export function useVonageSession({
       return;
     }
 
-    // Check if credentials look like mock data (more precise detection)
+    // Check if credentials look like mock data (only explicit mock patterns)
     const isMockCredentials = apiKey === 'mock_api_key' || 
-                             (sessionId.includes('mock') && sessionId.startsWith('1_MX40')) || 
-                             token.startsWith('T1==');
+                             sessionId.includes('mock');
     
+    const tokenFormat = token.startsWith('T1==') 
+      ? 'T1 (OpenTok legacy format)' 
+      : token.includes('.') && token.split('.').length === 3
+        ? 'JWT format' 
+        : 'Unknown format';
+
     console.log('📋 Credential Validation:');
     console.log('  - API Key Check:', apiKey === 'mock_api_key' ? 'MOCK' : 'REAL');
     console.log('  - Session ID Check:', sessionId.includes('mock') ? 'CONTAINS_MOCK' : 'REAL');
-    console.log('  - Token Check:', token.startsWith('T1==') ? 'MOCK' : 'REAL');
+    console.log('  - Token Format:', tokenFormat);
     console.log('  - Overall Assessment:', isMockCredentials ? 'MOCK_DATA' : 'REAL_DATA');
     
     if (isMockCredentials) {
@@ -244,7 +249,17 @@ export function useVonageSession({
       console.log('  - Using Session ID:', sessionId.substring(0, 20) + '...');
       console.log('  - Using Token Length:', token.length);
       
+      // Add timeout to detect if connection is hanging
+      const connectionTimeout = setTimeout(() => {
+        console.error('⏰ CONNECTION TIMEOUT - No response after 30 seconds');
+        console.error('  This may indicate network issues or invalid credentials');
+        console.error('  - Check browser network tab for failed requests');
+        console.error('  - Verify firewall/proxy settings');
+      }, 30000);
+      
       newSession.connect(token, (connectError: any) => {
+        clearTimeout(connectionTimeout);
+        console.log('🔄 CONNECTION CALLBACK EXECUTED');
         if (connectError) {
           console.error('❌ CONNECTION FAILED');
           console.error('  - Error Code:', connectError.code);

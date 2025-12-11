@@ -47,15 +47,22 @@ export function useMeetingSession() {
     try {
       const data = await joinMeeting(trimmed);
       
-      // Check if we received mock credentials (more precise detection)
+      // Check if we received mock credentials (only explicit mock patterns)
       const isMockData = data.apiKey === 'mock_api_key' || 
-                        (data.sessionId?.includes('mock') && data.sessionId?.startsWith('1_MX40')) || 
-                        data.token?.startsWith('T1==');
+                        data.sessionId?.includes('mock');
+      
+      // Log token format for debugging
+      const tokenFormat = data.token?.startsWith('T1==') 
+        ? 'T1 (OpenTok legacy format)' 
+        : data.token?.includes('.') && data.token?.split('.').length === 3
+          ? 'JWT format' 
+          : 'Unknown format';
       
       console.log('[useMeetingSession] Credential validation:');
       console.log('  - API Key:', data.apiKey ? `${data.apiKey.substring(0, 8)}...` : 'None');
       console.log('  - Session ID:', data.sessionId ? `${data.sessionId.substring(0, 20)}...` : 'None');
       console.log('  - Token:', data.token ? `${data.token.substring(0, 20)}... (length: ${data.token.length})` : 'None');
+      console.log('  - Token Format:', tokenFormat);
       console.log('  - Is Mock Data:', isMockData);
       
       if (isMockData) {

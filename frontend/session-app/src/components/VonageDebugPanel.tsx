@@ -57,9 +57,7 @@ export function VonageDebugPanel({ apiKey, sessionId, token, onClose }: VonageDe
     
     if (!token) {
       issues.push('トークンが未設定');
-    } else if (token.startsWith('T1==')) {
-      issues.push('トークンがモック値');
-    } else if (token.length < 50) {
+    } else if (token.length < 20) {
       issues.push('トークンが短すぎる');
     }
     
@@ -95,6 +93,15 @@ export function VonageDebugPanel({ apiKey, sessionId, token, onClose }: VonageDe
             <span className={token ? 'valid' : 'invalid'}>
               {token ? `${token.substring(0, 20)}... (長さ: ${token.length})` : '未設定'}
             </span>
+            {token && (
+              <div className="token-format">
+                形式: {token.startsWith('T1==') 
+                  ? 'T1 (OpenTok legacy format)' 
+                  : token.includes('.') && token.split('.').length === 3
+                    ? 'JWT format' 
+                    : 'Unknown format'}
+              </div>
+            )}
           </div>
           
           {issues.length > 0 && (

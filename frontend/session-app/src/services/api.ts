@@ -80,13 +80,20 @@ export async function joinMeeting(meetingId: string): Promise<MeetingSession> {
   console.log('  - Token:', response.token ? `${response.token.substring(0, 20)}... (length: ${response.token.length})` : 'None');
   console.log('  - API Key:', response.api_key ? `${response.api_key.substring(0, 8)}...` : 'None');
 
+  // Log token format for debugging
+  const tokenFormat = response.token?.startsWith('T1==') 
+    ? 'T1 (OpenTok legacy format)' 
+    : response.token?.includes('.') && response.token?.split('.').length === 3
+      ? 'JWT format' 
+      : 'Unknown format';
+  console.log('  - Token Format:', tokenFormat);
+
   const videoEnabled = Boolean(response.api_key && response.session_id && response.token);
   console.log('Video Enabled:', videoEnabled);
 
-  // Check for mock data
+  // Check for mock data (only explicit mock patterns)
   const isMockData = response.api_key === 'mock_api_key' || 
-                    response.session_id?.includes('mock') || 
-                    response.token?.startsWith('T1==');
+                    response.session_id?.includes('mock');
   if (isMockData) {
     console.warn('⚠️  MOCK DATA DETECTED in API response');
     console.warn('  This indicates the backend is running in mock mode');

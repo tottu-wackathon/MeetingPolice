@@ -58,10 +58,12 @@ class SessionController:
         self.logger.info("Token: %s... (length: %d)", payload["token"][:20], len(payload["token"]))
         self.logger.info("API Key: %s...", payload["api_key"][:8] if payload["api_key"] else "None")
         
-        # Check if we're sending mock data
-        is_mock = (api_key == "mock_api_key" or 
-                  session_id.startswith("1_MX40") and "mock" in session_id or
-                  token.startswith("T1=="))
+        # Check if we're sending mock data (only explicit mock patterns)
+        is_mock = (
+            self.vonage.is_mock_mode
+            or api_key == "mock_api_key"
+            or "mock" in session_id
+        )
         
         if is_mock:
             self.logger.warning("⚠️  MOCK DATA in payload - video will not work!")

@@ -22,6 +22,7 @@ class VonageClient:
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.vonage_api_key
+        self.api_secret = self.settings.vonage_api_secret
         self.application_id = self.settings.vonage_application_id
         self.private_key_path = self.settings.vonage_private_key_path
         self.logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class VonageClient:
         self.logger.info("=" * 60)
         self.logger.info("📋 Step 1: Configuration Check")
         self.logger.info("   - API Key: %s", "✅ Set" if self.api_key else "❌ Missing")
+        self.logger.info("   - API Secret: %s", "✅ Set" if self.api_secret else "❌ Missing")
         self.logger.info("   - Application ID: %s", "✅ Set" if self.application_id else "❌ Missing")
         self.logger.info("   - Private Key Path: %s", self.private_key_path)
         self.logger.info("   - Mock Mode Setting: %s", getattr(self.settings, 'vonage_mock_mode', False))
@@ -52,10 +54,12 @@ class VonageClient:
         
         # Check for placeholder values
         if (self.application_id in ["your_application_id_here", ""] or 
-            self.api_key in ["your_api_key_here", ""]):
+            self.api_key in ["your_api_key_here", ""] or
+            self.api_secret in ["your_api_secret_here", ""]):
             self.logger.warning("   ⚠️  Placeholder values detected in configuration")
             self.logger.warning("   - Application ID: %s", self.application_id)
             self.logger.warning("   - API Key: %s", self.api_key)
+            self.logger.warning("   - API Secret: %s", "Set" if self.api_secret else "Missing")
             self.is_mock_mode = True
             self.auth_method = "mock"
             self._log_initialization_result()
@@ -65,29 +69,40 @@ class VonageClient:
         private_key_loaded = self._load_private_key()
         self.logger.info("   - Private Key Loaded: %s", "✅ Yes" if private_key_loaded else "❌ No")
         
-        if VONAGE_AVAILABLE and self.application_id and self.api_key and private_key_loaded:
+        # Determine authentication method based on available credentials
+        has_jwt_credentials = self.application_id and private_key_loaded
+        has_api_credentials = self.api_key and self.api_secret
+        
+        if VONAGE_AVAILABLE and (has_jwt_credentials or has_api_credentials):
             self.logger.info("📋 Step 4: Vonage Client Initialization")
             try:
-                self.logger.info("   🔧 Creating Vonage Auth object...")
-                # Initialize Vonage client with JWT authentication
-                auth = Auth(
-                    application_id=self.application_id,
-                    private_key=self.private_key_content
-                )
-                self.logger.info("   ✅ Auth object created successfully")
-                
-                self.logger.info("   🔧 Creating Vonage client...")
-                self.client = Vonage(auth=auth)
+                if has_jwt_credentials:
+                    self.logger.info("   🔧 Using JWT Authentication (Application ID + Private Key)...")
+                    # Initialize Vonage client with JWT authentication
+                    auth = Auth(
+                        application_id=self.application_id,
+                        private_key=self.private_key_content
+                    )
+                    self.logger.info("   ✅ JWT Auth object created successfully")
+                    
+                    self.client = Vonage(auth=auth)
+                    self.video_client = self.client.video
+                    self.auth_method = "jwt"
+                    
+                elif has_api_credentials:
+                    self.logger.info("   🔧 Using API Key/Secret Authentication...")
+                    # Initialize Vonage client with API key/secret authentication
+                    auth = Auth(api_key=self.api_key, api_secret=self.api_secret)
+                    self.client = Vonage(auth=auth)
+                    self.video_client = self.client.video
+                    self.auth_method = "api_secret"
+                    
                 self.logger.info("   ✅ Vonage client created successfully")
-                
-                self.logger.info("   🔧 Getting video client...")
-                self.video_client = self.client.video
                 self.logger.info("   ✅ Video client obtained successfully")
                 
-                self.auth_method = "jwt"
                 self.is_mock_mode = False
                 self.logger.info("📋 Step 5: Initialization Complete")
-                self.logger.info("   ✅ Vonage Video API initialized with Python Server SDK v4.7.2 and JWT authentication")
+                self.logger.info("   ✅ Vonage Video API initialized with %s authentication", self.auth_method.upper())
             except Exception as e:
                 self.logger.error("📋 Step 4: Initialization Failed")
                 self.logger.error(f"   ❌ Vonage Video API initialization failed: {e}")
@@ -101,12 +116,16 @@ class VonageClient:
             missing = []
             if not VONAGE_AVAILABLE:
                 missing.append("Vonage SDK")
-            if not self.application_id:
-                missing.append("VONAGE_APPLICATION_ID")
-            if not self.api_key:
-                missing.append("VONAGE_API_KEY")
-            if not private_key_loaded:
-                missing.append("Private Key")
+            if not has_jwt_credentials and not has_api_credentials:
+                if not self.application_id:
+                    missing.append("VONAGE_APPLICATION_ID")
+                if not private_key_loaded:
+                    missing.append("Private Key")
+                if not self.api_key:
+                    missing.append("VONAGE_API_KEY")
+                if not self.api_secret:
+                    missing.append("VONAGE_API_SECRET")
+                missing.append("(Need either JWT credentials OR API Key/Secret)")
             
             self.logger.warning("📋 Step 4: Requirements Not Met")
             self.logger.warning(f"   ❌ Missing required credentials: {', '.join(missing)}")
@@ -144,10 +163,14 @@ class VonageClient:
         self.logger.info("Video Client: %s", "✅ Available" if self.video_client else "❌ Not Available")
         if self.is_mock_mode:
             self.logger.warning("⚠️  WARNING: Running in mock mode - video sessions will not work!")
-            self.logger.warning("⚠️  To enable real video sessions:")
-            self.logger.warning("   1. Set valid VONAGE_APPLICATION_ID in .env")
-            self.logger.warning("   2. Set valid VONAGE_API_KEY in .env")
-            self.logger.warning("   3. Place valid private key in secrets/vonage_private.key")
+            self.logger.warning("⚠️  To enable real video sessions, choose ONE of these options:")
+            self.logger.warning("   Option 1 - JWT Authentication:")
+            self.logger.warning("     1. Set valid VONAGE_APPLICATION_ID in .env")
+            self.logger.warning("     2. Set valid VONAGE_API_KEY in .env")
+            self.logger.warning("     3. Place valid private key in secrets/vonage_private.key")
+            self.logger.warning("   Option 2 - API Key/Secret Authentication:")
+            self.logger.warning("     1. Set valid VONAGE_API_KEY in .env")
+            self.logger.warning("     2. Set valid VONAGE_API_SECRET in .env")
         else:
             self.logger.info("✅ Ready for real video sessions!")
         self.logger.info("=" * 60)
@@ -228,6 +251,7 @@ class VonageClient:
         try:
             # Generate token with Vonage Video Python Server SDK v4.7.2
             self.logger.info("🔧 Using Vonage Video SDK for token generation")
+            self.logger.info("🔧 Authentication method: %s", self.auth_method)
             expire_time = int(time.time()) + ttl_seconds
             
             # Create TokenOptions object
@@ -250,20 +274,27 @@ class VonageClient:
                            len(token), type(token).__name__, 
                            token[:10] + "..." if len(token) > 10 else token, "." in token)
             
-            # JWTの場合、ペイロードをデコードして確認
-            if isinstance(token, str) and "." in token:
-                try:
-                    import base64
-                    import json
-                    parts = token.split(".")
-                    if len(parts) >= 2:
-                        # Base64デコード（パディング調整）
-                        payload_b64 = parts[1]
-                        payload_b64 += "=" * (4 - len(payload_b64) % 4)  # パディング調整
-                        payload = json.loads(base64.b64decode(payload_b64))
-                        self.logger.info("🔍 JWT payload: %s", payload)
-                except Exception as e:
-                    self.logger.warning("Failed to decode JWT payload: %s", e)
+            # Log token format for debugging
+            if isinstance(token, str):
+                if token.startswith('T1=='):
+                    self.logger.info("🔍 Token format: OpenTok legacy format (T1==)")
+                elif "." in token and token.count(".") >= 2:
+                    self.logger.info("🔍 Token format: JWT format (contains dots)")
+                    # JWTの場合、ペイロードをデコードして確認
+                    try:
+                        import base64
+                        import json
+                        parts = token.split(".")
+                        if len(parts) >= 2:
+                            # Base64デコード（パディング調整）
+                            payload_b64 = parts[1]
+                            payload_b64 += "=" * (4 - len(payload_b64) % 4)  # パディング調整
+                            payload = json.loads(base64.b64decode(payload_b64))
+                            self.logger.info("🔍 JWT payload: %s", payload)
+                    except Exception as e:
+                        self.logger.warning("Failed to decode JWT payload: %s", e)
+                else:
+                    self.logger.info("🔍 Token format: Unknown format")
             
             return token
         except Exception as exc:
