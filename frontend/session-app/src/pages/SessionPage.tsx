@@ -66,7 +66,7 @@ export function SessionPage() {
     const lengthMap: Record<string, number> = {};
     transcripts.forEach((item) => {
       const speaker = item.speaker || 'Unknown';
-      if (speaker === '判別中...' || speaker === '発話中...') return;
+      if (speaker === '判別中...') return;
       const length = item.transcript.length;
       lengthMap[speaker] = (lengthMap[speaker] || 0) + length;
     });
@@ -361,22 +361,16 @@ export function SessionPage() {
                 </div>
               </div>
               <div className="transcript-feed">
-                {transcripts.slice().reverse().map((item, index) => {
-                  const itemData = item as any;
-                  const key = itemData.result_id ?? `idx-${itemData.index ?? index}`;
-                  
-                  return (
-                    <article key={key} className="transcript-item">
-                      <header>
-                        <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
-                        {itemData.raw_speaker && <span className="pill mono">{itemData.raw_speaker}</span>}
-                        <span>{item.timestamp}</span>
-                        {item.isPartial && <span className="pill">部分</span>}
-                      </header>
-                      <p>{item.transcript}</p>
-                    </article>
-                  );
-                })}
+                {transcripts.map((item, index) => (
+                  <article key={item.timestamp + index} className="transcript-item">
+                    <header>
+                      <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
+                      <span>{item.timestamp}</span>
+                      {item.isPartial && <span className="pill">部分</span>}
+                    </header>
+                    <p>{item.transcript}</p>
+                  </article>
+                ))}
                 {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
               </div>
             </section>

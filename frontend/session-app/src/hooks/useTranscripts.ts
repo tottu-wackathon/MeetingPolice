@@ -60,118 +60,27 @@ export function useTranscripts(
         ws.onmessage = (event) => {
           console.log('[useTranscripts] Received message:', event.data);
           try {
-            const data = JSON.parse(event.data);
-            console.log('[useTranscripts] Parsed data:', data);
+            const payload = JSON.parse(event.data);
+            console.log('[useTranscripts] Parsed payload:', payload);
             
-            if (data?.type === 'realtime_classification') {
-              console.log('[useTranscripts] Classification payload:', data.payload);
-              onClassification?.(data.payload);
+            if (payload?.type === 'realtime_classification') {
+              console.log('[useTranscripts] Classification payload:', payload.payload);
+              onClassification?.(payload.payload);
               return;
             }
             
-            if (data?.type === 'transcript') {
-              const payload = data.payload;
-              const action = data.action || 'append';
-              
-              console.log('[useTranscripts] Transcript update:', { 
-                action, 
-                payload, 
-                key: payload.result_id ?? `idx-${payload.index}`,
-                text: payload.text 
-              });
-              
-              setTranscripts((prev) => {
-                const key = payload.result_id ?? `idx-${payload.index}`;
-                
-                const updateExisting = (items: LiveTranscript[]) =>
-                  items.map((item) => {
-                    const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
-                    if (itemKey !== key) return item;
-                    
-                    console.log('[useTranscripts] Updating existing item:', {
-                      oldText: item.transcript,
-                      newText: payload.text,
-                      key: itemKey
-                    });
-                    
-                    return {
-                      meetingId,
-                      transcript: payload.text || '',
-                      sentiment: 'NEUTRAL',
-                      timestamp: payload.timestamp || item.timestamp,
-                      speaker: payload.speaker || item.speaker,
-                      isPartial: false,
-                      // Keep additional properties for key management
-                      ...(item as any),
-                      ...payload,
-                    } as LiveTranscript;
-                  });
-                
-                const exists = prev.some((item) => {
-                  const itemKey = (item as any).result_id ?? `idx-${(item as any).index}`;
-                  return itemKey === key;
-                });
-                
-                if (action === 'append') {
-                  if (exists) {
-                    return updateExisting(prev);
-                  }
-                  
-                  // Check if we should merge with the last entry (same speaker)
-                  const lastEntry = prev[prev.length - 1];
-                  const shouldMergeWithLast = (
-                    lastEntry && 
-                    lastEntry.speaker === payload.speaker &&
-                    payload.speaker !== '判別中...' &&  // Don't merge unknown speakers
-                    payload.speaker !== '発話中...'     // Don't merge speaking indicators
-                  );
-                  
-                  if (shouldMergeWithLast) {
-                    console.log('[useTranscripts] Merging with last entry:', {
-                      lastText: lastEntry.transcript,
-                      newText: payload.text,
-                      speaker: payload.speaker
-                    });
-                    
-                    // Update the last entry instead of adding new one
-                    const updatedItems = [...prev];
-                    updatedItems[updatedItems.length - 1] = {
-                      ...lastEntry,
-                      transcript: payload.text || '',
-                      timestamp: payload.timestamp || lastEntry.timestamp,
-                      // Update additional properties
-                      ...(payload as any),
-                    } as LiveTranscript;
-                    
-                    return updatedItems;
-                  }
-                  
-                  const newEntry: LiveTranscript = {
-                    meetingId,
-                    transcript: payload.text || '',
-                    sentiment: 'NEUTRAL',
-                    timestamp: payload.timestamp || new Date().toISOString(),
-                    speaker: payload.speaker || 'Unknown',
-                    isPartial: false,
-                    // Add additional properties for key management
-                    ...(payload as any),
-                  };
-                  
-                  console.log('[useTranscripts] Adding new entry:', {
-                    text: newEntry.transcript,
-                    key: key,
-                    totalItems: prev.length + 1
-                  });
-                  
-                  return [...prev, newEntry].slice(-50);
-                }
-                
-                if (action === 'update' && exists) {
-                  return updateExisting(prev);
-                }
-                
-                return prev;
-              });
+            // Only process if there's actual transcript content
+            if (payload.transcript && payload.transcript.trim()) {
+              const entry: LiveTranscript = {
+                meetingId,
+                transcript: payload.transcript.trim(),
+                sentiment: payload.sentiment ?? 'NEUTRAL',
+                timestamp: payload.timestamp ?? new Date().toISOString(),
+                speaker: payload.speaker,
+                isPartial: payload.is_partial,
+              };
+              console.log('[useTranscripts] Adding transcript entry:', entry);
+              setTranscripts((prev) => [entry, ...prev].slice(0, 50));
             }
           } catch (err) {
             console.warn('Failed to parse transcript payload', err);
