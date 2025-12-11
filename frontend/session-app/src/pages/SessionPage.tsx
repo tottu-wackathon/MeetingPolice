@@ -36,22 +36,22 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final, is_partial } = payload;
       
       setRealtimeClassifications((prev) => {
-        // 部分結果の場合、同じテキストの重複を避ける
+        // 部分結果の場合、同じ話者の最新の部分結果を更新
         if (is_partial) {
-          const duplicateIndex = prev.findIndex((item) => 
-            item.text === text && 
-            item.speaker === speaker && 
-            item.is_partial === true
-          );
-          
-          if (duplicateIndex >= 0) {
-            // 既存の部分結果を更新
-            const updated = [...prev];
-            updated[duplicateIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial };
-            return updated;
+          // 同じ話者の最新の部分結果を探す（最後から検索）
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const item = prev[i];
+            if (item.speaker === speaker && item.is_partial === true) {
+              // 既存の部分結果を更新
+              const updated = [...prev];
+              updated[i] = { index, text, speaker, category, alignment, method, is_final, is_partial };
+              console.log('[SessionPage] Updated partial result:', { text, speaker, index: i });
+              return updated;
+            }
           }
         }
         
+        // 同じインデックスの既存エントリを探す
         const existingIndex = prev.findIndex((item) => item.index === index);
         
         if (existingIndex >= 0) {
@@ -60,6 +60,7 @@ export function SessionPage() {
           return updated;
         }
         
+        // 新しいエントリを追加
         return [...prev, { index, text, speaker, category, alignment, method, is_final, is_partial }].slice(-100); // 最新100件に制限
       });
     },
@@ -642,7 +643,7 @@ export function SessionPage() {
 
               <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 {realtimeClassifications
-                  .filter(item => item.text.length >= 5) // 部分結果も表示するため閾値を下げる
+                  .filter(item => item.text.length >= 3) // 部分結果も表示するため閾値をさらに下げる
                   .slice().reverse()
                   .map((item, index) => {
                     const isFinal = item.is_final === true;

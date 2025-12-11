@@ -184,10 +184,10 @@ class SessionController:
                     ))
                     
                     # Also trigger analysis for partial results if text is substantial
-                    if is_partial and len(transcript.strip()) >= 15:
-                        # Get a unique index for this partial result
-                        partial_index = session_data.get('next_partial_index', 10000)
-                        session_data['next_partial_index'] = partial_index + 1
+                    if is_partial and len(transcript.strip()) >= 10:  # Lower threshold for faster response
+                        # Use the same result_id for partial analysis to ensure single line
+                        # Create a consistent partial index based on result_id
+                        partial_index = hash(result_id) % 100000  # Consistent index for same result_id
                         
                         # Trigger partial analysis
                         asyncio.create_task(self._classify_and_send_realtime(
@@ -512,11 +512,14 @@ class SessionController:
             "is_partial": is_partial
         }
         
-        # Send quick result
-        await websocket.send_json({
-            "type": "realtime_classification",
-            "payload": result_quick
-        })
+        # Send quick result immediately
+        try:
+            await websocket.send_json({
+                "type": "realtime_classification",
+                "payload": result_quick
+            })
+        except Exception as e:
+            self.logger.error(f"Failed to send realtime classification: {e}")
         
         # Step 2: Background Bedrock analysis (only for non-partial results to avoid overload)
         if not is_partial:
