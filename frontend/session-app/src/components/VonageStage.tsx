@@ -205,27 +205,54 @@ export function VonageStage({
   }, [videoOff]);
 
   return (
-    <section className="video-stage compact">
-      <div className="video-badge">
-        {!enabled ? 'Audio Only' : status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Idle'}
+    <div>
+      {/* Debug Information */}
+      <div style={{ 
+        marginBottom: '16px', 
+        padding: '12px', 
+        backgroundColor: 'rgba(0,0,0,0.3)', 
+        borderRadius: '4px',
+        fontSize: '0.85em',
+        color: '#ccc'
+      }}>
+        <div><strong>接続状況:</strong> {status}</div>
+        <div><strong>APIキー:</strong> {apiKey ? `${apiKey.substring(0, 8)}...` : '未設定'}</div>
+        <div><strong>セッションID:</strong> {sessionId ? `${sessionId.substring(0, 20)}...` : '未設定'}</div>
+        <div><strong>トークン:</strong> {token ? `${token.substring(0, 20)}...` : '未設定'}</div>
+        <div><strong>ミュート:</strong> {muted ? 'はい' : 'いいえ'}</div>
+        <div><strong>ビデオオフ:</strong> {videoOff ? 'はい' : 'いいえ'}</div>
+        {error && <div style={{ color: '#f44336' }}><strong>エラー:</strong> {error}</div>}
       </div>
-      <div className="video-strip">
-        <div className="video-tile small">
-          <div className="video-feed" ref={publisherContainerRef}>
-            {!enabled && <p className="video-placeholder">Audio</p>}
-            {enabled && !publisherRef.current && status !== 'error' && <p className="video-placeholder">Init…</p>}
-            {enabled && status === 'error' && <p className="video-placeholder">Video failed</p>}
+
+      <section className="video-stage compact">
+        <div className="video-badge">
+          {!enabled ? 'Audio Only' : status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'error' ? 'Error' : 'Idle'}
+        </div>
+        <div className="video-strip">
+          <div className="video-tile small">
+            <div className="video-feed" ref={publisherContainerRef}>
+              {!enabled && <p className="video-placeholder">Audio Only</p>}
+              {enabled && status === 'idle' && <p className="video-placeholder">待機中...</p>}
+              {enabled && status === 'connecting' && <p className="video-placeholder">接続中...</p>}
+              {enabled && status === 'connected' && !publisherRef.current && <p className="video-placeholder">カメラ初期化中...</p>}
+              {enabled && status === 'error' && <p className="video-placeholder">接続エラー</p>}
+            </div>
+            <div className="video-meta">
+              <p className="name">あなた</p>
+            </div>
+          </div>
+          <div className="video-tile small" ref={subscriberContainerRef}>
+            {!enabled && <p className="video-placeholder">Audio Only</p>}
+            {enabled && status !== 'connected' && <p className="video-placeholder">参加者待ち</p>}
+            {enabled && status === 'connected' && <p className="video-placeholder">参加者なし</p>}
           </div>
         </div>
-        <div className="video-tile small" ref={subscriberContainerRef}>
-          {!enabled && <p className="video-placeholder">Audio</p>}
-        </div>
-      </div>
-      {(fallbackNotice || error) && (
-        <p className="error" role="alert">
-          {fallbackNotice || error}
-        </p>
-      )}
-    </section>
+        {(fallbackNotice || error) && (
+          <p className="error" role="alert">
+            {fallbackNotice || error}
+          </p>
+        )}
+      </section>
+    </div>
   );
 }

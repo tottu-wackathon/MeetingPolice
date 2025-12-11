@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
+import { VonageStage } from '../components/VonageStage';
 
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
@@ -334,6 +335,45 @@ export function SessionPage() {
   if (session) {
     content = (
       <>
+        {/* Vonage Video Stage */}
+        <section className="panel">
+          <div className="panel-header">
+            <h2>ビデオ通話</h2>
+            <span className="badge">
+              {session.videoEnabled ? 'Vonage接続' : '音声のみ'}
+            </span>
+          </div>
+          {session.videoEnabled ? (
+            <VonageStage
+              apiKey={session.apiKey}
+              sessionId={session.sessionId}
+              token={session.token}
+              muted={isMuted}
+              videoOff={isVideoOff}
+              enabled={true}
+              onParticipantsChange={(vonageParticipants) => {
+                // Update participants from Vonage
+                setParticipants([
+                  { id: 'local', name: 'You', role: 'host', isSpeaking: false },
+                  ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
+                ]);
+              }}
+            />
+          ) : (
+            <div style={{ 
+              padding: '40px', 
+              textAlign: 'center', 
+              backgroundColor: 'rgba(255, 152, 0, 0.1)',
+              borderRadius: '8px',
+              color: '#ffb74d'
+            }}>
+              <p>🎙️ 音声のみモードで動作中</p>
+              <p>ビデオ通話機能を利用するには、Vonage APIの設定が必要です。</p>
+              <small>文字起こし機能は正常に動作します。</small>
+            </div>
+          )}
+        </section>
+
         {/* 参加者一覧 */}
         <section className="panel participants-panel">
           <div className="participants-grid">
