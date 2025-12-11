@@ -297,10 +297,10 @@ class SessionController:
             return "spk_unk"
 
     def _speaker_name(self, session_data: dict, raw_label: str | None) -> str:
-        """Get friendly speaker name."""
+        """Get friendly speaker name (poc_satomin style)."""
         key = self._normalize_raw_label(raw_label)
         
-        # Handle unknown speaker
+        # Handle unknown speaker - always keep as "判別中..." (poc_satomin style)
         if key == "spk_unk":
             session_data["speaker_labels"].setdefault("spk_unk", "判別中...")
             return session_data["speaker_labels"]["spk_unk"]
@@ -319,6 +319,11 @@ class SessionController:
             self.logger.info(f"👤 New speaker registered: {key} → {label}")
             
         return session_data["speaker_labels"][key]
+
+    def _is_unknown_label(self, raw_label: str | None) -> bool:
+        """Check if speaker label is unknown (poc_satomin style)."""
+        normalized = self._normalize_raw_label(raw_label)
+        return normalized == "spk_unk"
 
     async def _handle_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
         """Handle transcription result with speaker continuity."""
@@ -396,6 +401,16 @@ class SessionController:
             session_data["current_transcript"] = new_entry
             
             self.logger.info(f"📝 New transcript entry created for {speaker_label} (index: {new_entry['index']})")
+        
+        # Handle speaker label stabilization (poc_satomin style)
+        if current_transcript:
+            current_raw = current_transcript.get("raw_speaker", "spk_unk")
+            # Allow upgrade from unknown to known speaker, but keep speaker stable once known
+            if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
+                current_transcript["raw_speaker"] = raw_label
+                stable_speaker = self._speaker_name(session_data, raw_label)
+                current_transcript["speaker"] = stable_speaker
+                self.logger.info(f"👤 Speaker label upgraded: {current_raw} → {raw_label} ({stable_speaker})")
             
             # Send new transcript
             await websocket.send_json({
@@ -439,33 +454,46 @@ class SessionController:
             "index": current_transcript["index"],
         })
         
-        # Trigger classification for final result
-        await self._classify_and_send_realtime(
-            websocket, 
-            session_data["meeting_id"], 
-            current_transcript["text"], 
-            current_transcript["speaker"], 
-            current_transcript["index"]
+        # Trigger classification for final result with text splitting (poc_satomin style)
+        await self._classify_entry_with_splitting(
+            session_data,
+            websocket,
+            current_transcript
         )
 
 
 
     async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
-        """Perform real-time classification like poc_satomin."""
+        """Perform real-time classification (poc_satomin style hybrid approach)."""
         # Skip short texts
         text_stripped = text.strip()
         if len(text_stripped) < 10:
+            self.logger.debug(f"Skipping short text: '{text_stripped}' (len={len(text_stripped)})")
             return
             
         session_data = self.session_data.get(meeting_id)
         if not session_data:
             return
             
-        # Skip meta information
-        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
+        # Skip meta information (poc_satomin style)
+        if text.startswith("Agenda topic:"):
+            self.logger.debug(f"Skipping meta information: {text[:30]}...")
             return
             
-        # Step 1: Quick keyword-based classification
+        # Check for Discussion meta information
+        if text.startswith("Discussion: Confirming action items for"):
+            import re
+            match = re.search(r"'([^']+)'", text)
+            if match:
+                content = match.group(1)
+                meta_keywords = ["議題タイトル", "所要時間", "発表者", "分", "時間"]
+                if len(content) < 10 or any(keyword in content for keyword in meta_keywords):
+                    self.logger.debug(f"Skipping discussion meta info: {text[:50]}...")
+                    return
+        
+        self.logger.info(f"📊 Real-time analysis start: {speaker} - {text[:30]}...")
+        
+        # Step 1: Quick keyword-based classification (immediate response)
         category_quick = _guess_category(text)
         alignment_quick = self._calculate_alignment(text, session_data["agenda_text"])
         
@@ -475,11 +503,11 @@ class SessionController:
             "speaker": speaker,
             "category": category_quick,
             "alignment": alignment_quick,
-            "method": "keyword",
-            "is_final": False
+            "method": "keyword",  # Keyword-based
+            "is_final": False  # Not final yet
         }
         
-        # Send quick result
+        # Send immediate result to client
         await websocket.send_json({
             "type": "realtime_classification",
             "payload": result_quick
@@ -488,15 +516,20 @@ class SessionController:
         # Check for police dispatch trigger (low alignment)
         await self._check_police_dispatch_trigger(session_data, alignment_quick, text, speaker, websocket)
         
-        # Step 2: Background Bedrock analysis
+        # Step 2: Background Bedrock analysis (async)
+        if "pending_bedrock_tasks" not in session_data:
+            session_data["pending_bedrock_tasks"] = set()
+            
         task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
         session_data["pending_bedrock_tasks"].add(task)
         task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
 
     async def _classify_with_bedrock(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
-        """Bedrock classification in background."""
+        """Bedrock classification in background (poc_satomin style)."""
+        self.logger.info(f"🔍 Bedrock analysis start: {speaker} - {text[:30]}...")
+        
         try:
-            # Get context
+            # Get context from transcripts
             context_before = ""
             context_after = ""
             for transcript in session_data["transcripts"]:
@@ -505,7 +538,7 @@ class SessionController:
                 elif transcript.get("index") == index + 1:
                     context_after = transcript.get("text", "")
             
-            # Bedrock analysis
+            # Prepare segment for Bedrock analysis
             segment = {
                 "index": index,
                 "speaker": speaker,
@@ -514,11 +547,17 @@ class SessionController:
                 "context_after": context_after,
             }
             
+            self.logger.debug(f"Sending to Bedrock: segment={segment}")
+            self.logger.debug(f"Agenda text: {session_data['agenda_text'][:100]}...")
+            
+            # Call Bedrock classification
             classified = await asyncio.to_thread(
                 classify_transcript_segments,
                 [segment],
                 session_data["agenda_text"]
             )
+            
+            self.logger.debug(f"Bedrock response: {classified}")
             
             if classified and len(classified) > 0:
                 result = classified[0]
@@ -531,11 +570,11 @@ class SessionController:
                     "speaker": speaker,
                     "category": category_ai,
                     "alignment": alignment_ai,
-                    "method": "bedrock",
-                    "is_final": True
+                    "method": "bedrock",  # AI analysis
+                    "is_final": True  # Final result
                 }
                 
-                # Send AI result
+                # Send AI result update
                 await websocket.send_json({
                     "type": "realtime_classification",
                     "action": "update",
@@ -545,9 +584,10 @@ class SessionController:
                 # Check for police dispatch trigger with AI result
                 await self._check_police_dispatch_trigger(session_data, alignment_ai, text, speaker, websocket)
                 
-                self.logger.info(f"Bedrock分析完了: {speaker} - {text} → [{category_ai}] {alignment_ai}%")
+                self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
             else:
-                # Fallback to keyword
+                # Bedrock failed, finalize keyword-based result
+                self.logger.warning("⚠️ No Bedrock result, finalizing keyword-based analysis")
                 category_fallback = _guess_category(text)
                 alignment_fallback = self._calculate_alignment(text, session_data["agenda_text"])
                 
@@ -557,8 +597,8 @@ class SessionController:
                     "speaker": speaker,
                     "category": category_fallback,
                     "alignment": alignment_fallback,
-                    "method": "keyword",
-                    "is_final": True
+                    "method": "keyword",  # Keyword-based (Bedrock failed)
+                    "is_final": True  # Final (Bedrock failed)
                 }
                 
                 await websocket.send_json({
@@ -566,47 +606,56 @@ class SessionController:
                     "action": "update", 
                     "payload": result_fallback
                 })
+                
+                self.logger.info(f"✅ Keyword analysis finalized: {speaker} - {text[:30]}... → [{category_fallback}] {alignment_fallback}%")
         
         except Exception as e:
-            self.logger.error(f"Bedrock分析失敗: {e}")
+            self.logger.error(f"❌ Bedrock analysis failed: {e}")
+            self.logger.exception("Detailed error:")
+            # Error occurred, but keyword-based result is already sent, so no problem
 
     def _calculate_alignment(self, text: str, agenda_text: str) -> int:
-        """Calculate alignment with agenda."""
+        """Calculate alignment with agenda (poc_satomin style)."""
         if not agenda_text or not agenda_text.strip():
-            return 50
-            
+            return 50  # Default 50% if no agenda
+        
         # Skip meta information
-        meta_keywords = ["議題", "タイトル", "所要時間", "発表者", "検討事項", "目的", "背景"]
+        meta_keywords = ["議題", "タイトル", "所要時間", "発表者", "Agenda topic:", "分", "時間"]
         if any(keyword in text for keyword in meta_keywords):
-            return 50
+            return 50  # Meta information gets default 50%
             
-        # Extract keywords from agenda
+        # Extract keywords from agenda (excluding meta information)
         agenda_keywords = set()
         skip_keywords = {"議題", "タイトル", "所要時間", "発表者", "検討事項", "目的", "背景"}
         
         for line in agenda_text.splitlines():
-            line = line.strip(" -*•\t0123456789.。")
+            line = line.strip(" -*•\t0123456789.。")  # Remove bullet points and numbers
             if not line:
                 continue
+            # Skip meta information lines
             if any(skip in line for skip in skip_keywords):
                 continue
+            # Extract 2+ character words (Japanese)
             import re
             words = [w for w in re.findall(r'[ぁ-んァ-ヶ一-龠ー]+', line) if len(w) >= 2]
+            # Remove skip keywords
             words = [w for w in words if w not in skip_keywords]
             agenda_keywords.update(words)
         
         if not agenda_keywords:
-            return 50
+            return 50  # Default 50% if no keywords
             
-        # Count matches
+        # Count keyword matches
         text_lower = text.lower()
         matched_count = sum(1 for keyword in agenda_keywords if keyword in text_lower)
         
+        # Calculate alignment (0-100%)
         if matched_count == 0:
-            return 30
+            return 30  # Minimum 30% even with no matches
             
+        # More lenient calculation (poc_satomin style)
         match_ratio = matched_count / len(agenda_keywords)
-        alignment = min(100, int(30 + (match_ratio * 70)))
+        alignment = min(100, int(30 + (match_ratio * 70)))  # 30%-100% range
         
         return alignment
 
@@ -942,5 +991,75 @@ class SessionController:
         estimation["last_speech_time"] = current_time
         
         return estimation["last_speaker"]
+
+    def _split_long_text(self, text: str, max_length: int = 80, min_length: int = 25) -> list[str]:
+        """Split long text at punctuation marks (poc_satomin style)."""
+        if len(text) <= max_length:
+            return [text]
+        
+        import re
+        
+        # Split at punctuation marks (including the punctuation)
+        parts = re.split(r'(。|！|？)', text)
+        
+        # Combine punctuation with previous sentence
+        sentences = []
+        for i in range(0, len(parts), 2):
+            sentence = parts[i]
+            if i + 1 < len(parts):
+                sentence += parts[i + 1]  # Add punctuation
+            if sentence.strip():
+                sentences.append(sentence.strip())
+        
+        # Further split long sentences at commas
+        result = []
+        for sentence in sentences:
+            if len(sentence) <= max_length:
+                result.append(sentence)
+            else:
+                # Split at commas
+                sub_parts = re.split(r'(、|,)', sentence)
+                buffer = ""
+                for i in range(0, len(sub_parts)):
+                    part = sub_parts[i]
+                    if len(buffer + part) <= max_length:
+                        buffer += part
+                    else:
+                        if buffer.strip():
+                            result.append(buffer.strip())
+                        buffer = part
+                if buffer.strip():
+                    result.append(buffer.strip())
+        
+        # Merge sentences that are too short
+        final_result = []
+        for sentence in result:
+            if final_result and len(sentence) < min_length:
+                final_result[-1] += sentence
+            else:
+                final_result.append(sentence)
+        
+        return [s for s in final_result if s]
+
+    async def _classify_entry_with_splitting(self, session_data: dict, websocket: WebSocket, entry: dict) -> None:
+        """Classify entry with text splitting (poc_satomin style)."""
+        split_texts = self._split_long_text(entry["text"])
+        meeting_id = session_data["meeting_id"]
+        
+        for i, split_text in enumerate(split_texts):
+            # Create unique index for each split
+            unique_index = entry["index"] * 1000 + i
+            
+            # Skip very short texts
+            if len(split_text.strip()) < 10:
+                continue
+                
+            await self._classify_and_send_realtime(
+                websocket, 
+                meeting_id, 
+                split_text, 
+                entry["speaker"], 
+                unique_index
+            )
 
 
