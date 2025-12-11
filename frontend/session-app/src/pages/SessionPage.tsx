@@ -520,6 +520,7 @@ export function SessionPage() {
                 </div>
                 <div className="security-index-content">
                   <div className="index-display">
+                    <div className="index-label">会議治安指数</div>
                     <div className="index-number" style={{
                       color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336'
                     }}>
@@ -646,7 +647,7 @@ export function SessionPage() {
       {showWarning && (
         <div style={{
           position: 'fixed',
-          top: '20px',
+          top: '120px',
           left: '0',
           right: '0',
           margin: '0 auto',
@@ -668,7 +669,7 @@ export function SessionPage() {
       {showPoliceWarning && (
         <div style={{
           position: 'fixed',
-          top: '20px',
+          top: '140px',
           left: '0',
           right: '0',
           margin: '0 auto',

@@ -527,15 +527,21 @@ strong {
   gap: 1rem;
 }
 
+.index-label {
+  font-size: 0.95rem;
+  color: #00ffff;
+  margin-bottom: 0.35rem;
+}
+
 .index-display .index-number {
-  font-size: 3.2rem;
-  line-height: 1;
+  font-size: 3.8rem;
+  line-height: 1.1;
 }
 
 .alignment-chart-container {
   flex: 1;
   aspect-ratio: 1 / 1;
-  max-width: 320px;
+  max-width: 360px;
 }
 
 .alignment-chart {
