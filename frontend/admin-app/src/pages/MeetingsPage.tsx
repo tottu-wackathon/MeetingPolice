@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MeetingForm } from '../components/MeetingForm';
 import { MeetingTable } from '../components/MeetingTable';
 import { SummaryPanel } from '../components/SummaryPanel';
+import { VonageStatusPanel } from '../components/VonageStatusPanel';
 import { useMeetings } from '../hooks/useMeetings';
 import type { Meeting } from '../types';
 
@@ -74,6 +75,7 @@ export function MeetingsPage() {
       <div className="grid">
         <div>
           <MeetingForm onCreated={handleCreated} />
+          <VonageStatusPanel />
           <MeetingTable meetings={meetings} onSelect={setSelected} />
         </div>
         <SummaryPanel meeting={selected} />

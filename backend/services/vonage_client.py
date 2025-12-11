@@ -33,7 +33,7 @@ class VonageClient:
             self.auth_method = "jwt"
             self.is_mock_mode = False
         # Fallback to OpenTok authentication
-        elif OPENTOK_AVAILABLE and self.api_key and self.api_secret and len(self.api_key) > 5:
+        elif OPENTOK_AVAILABLE and self.api_key and self.api_secret and self.api_secret != self.api_key and len(self.api_key) > 5:
             try:
                 # Test if credentials are valid by creating a test client
                 test_client = OpenTok(self.api_key, self.api_secret)

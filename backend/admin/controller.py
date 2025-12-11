@@ -2,12 +2,14 @@ from backend.models.meeting_model import Meeting
 from backend.services.repository import MeetingRepository
 from backend.services.s3_storage import S3Storage
 from backend.services.bedrock_utils import summarize_transcript
+from backend.services.vonage_client import VonageClient
 
 
 class AdminController:
     def __init__(self, repository: MeetingRepository | None = None):
         self.repository = repository or MeetingRepository()
         self.storage = S3Storage()
+        self.vonage = VonageClient()
 
     def list_meetings(self) -> list[Meeting]:
         return self.repository.list_meetings()
@@ -32,3 +34,52 @@ class AdminController:
         self.storage.write_json(summary_key, summary)
         self.repository.update_meeting(meeting_id, summary_s3_key=summary_key, status="completed")
         return summary
+
+    def get_vonage_status(self) -> dict:
+        """Get Vonage API connection status and authentication method."""
+        try:
+            # Test session creation to verify connection
+            test_session = self.vonage.create_session("test-connection")
+            session_id = test_session.get("session_id", "")
+            
+            # Determine connection status
+            if session_id.startswith("1_MX40") and not session_id.startswith("session-"):
+                # Real Vonage session ID format
+                status = "connected"
+                auth_method = getattr(self.vonage, 'auth_method', 'unknown')
+            elif session_id.startswith("1_MX40"):
+                # Mock session but proper format
+                status = "mock"
+                auth_method = "mock"
+            else:
+                # Simple mock session
+                status = "disconnected"
+                auth_method = "mock"
+            
+            return {
+                "status": status,
+                "auth_method": auth_method,
+                "api_key": self.vonage.api_key[:8] + "..." if self.vonage.api_key else "Not set",
+                "application_id": self.vonage.application_id[:8] + "..." if self.vonage.application_id else "Not set",
+                "has_private_key": hasattr(self.vonage, 'private_key_content') and bool(self.vonage.private_key_content),
+                "test_session_id": session_id[:20] + "..." if len(session_id) > 20 else session_id
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "auth_method": "unknown",
+                "error": str(e),
+                "api_key": self.vonage.api_key[:8] + "..." if self.vonage.api_key else "Not set",
+                "application_id": self.vonage.application_id[:8] + "..." if self.vonage.application_id else "Not set",
+                "has_private_key": False
+            }
+
+    def list_meetings_with_vonage_status(self) -> dict:
+        """List meetings with Vonage connection status."""
+        meetings = self.list_meetings()
+        vonage_status = self.get_vonage_status()
+        
+        return {
+            "meetings": [meeting.model_dump() for meeting in meetings],
+            "vonage_status": vonage_status
+        }
