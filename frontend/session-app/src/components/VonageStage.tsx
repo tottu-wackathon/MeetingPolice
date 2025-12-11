@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { VideoClient, Session, Publisher } from '@vonage/client-sdk-video';
+import { VideoClient } from '@vonage/video-client';
 
 type Props = {
   apiKey: string;
@@ -96,15 +96,13 @@ export function VonageStage({
       return undefined;
     }
 
-    // Vonage Client SDK Video の確認
-    console.log('[VonageStage] Checking Vonage Client SDK Video availability:', { 
-      hasVideoClient: !!VideoClient,
-      hasSession: !!Session,
-      hasPublisher: !!Publisher
+    // Vonage Video Client の確認
+    console.log('[VonageStage] Checking Vonage Video Client availability:', { 
+      hasVideoClient: !!VideoClient
     });
     
-    if (!VideoClient || !Session || !Publisher) {
-      console.log('[VonageStage] Vonage Client SDK Video not available');
+    if (!VideoClient) {
+      console.log('[VonageStage] Vonage Video Client not available');
       setStatus('error');
       setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
@@ -122,7 +120,7 @@ export function VonageStage({
       });
       
       const client = new VideoClient();
-      const session = new Session(client, sessionId, { apiKey });
+      const session = client.createSession(apiKey, sessionId);
       sessionRef.current = session;
       console.log('[VonageStage] Session created successfully');
 
@@ -235,7 +233,7 @@ export function VonageStage({
         },
       };
 
-      const publisher = new Publisher(client, publisherContainer, publisherOptions);
+      const publisher = client.initPublisher(publisherContainer, publisherOptions);
       
       publisher.on('accessDenied', (err: any) => {
         console.error('[VonageStage] Publisher access denied:', err);
