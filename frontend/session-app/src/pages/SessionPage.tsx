@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
-import { VonageStage } from '../components/VonageStage';
+import { VideoRoom } from '../components/VideoRoom';
 
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
@@ -340,51 +340,16 @@ export function SessionPage() {
           <div className="panel-header">
             <h2>参加者</h2>
             <span className="badge">{participants.length}名</span>
-            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>
-              Debug: {JSON.stringify(participants.map(p => ({ id: p.id, name: p.name, role: p.role })))}
-            </div>
           </div>
           <div className="participants-grid">
             {participants.map((p) => (
               <div key={p.id} className="participant-window">
                 <div className="participant-avatar">
-                  {p.id === 'local' && session.videoEnabled ? (
-                    // 自分のビデオを表示
-                    <div 
-                      id="vonage-publisher" 
-                      style={{ 
-                        width: '100%', 
-                        height: '100%', 
-                        borderRadius: '50%',
-                        overflow: 'hidden',
-                        position: 'relative',
-                        backgroundColor: '#333'
-                      }}
-                    >
-                      {/* フォールバック表示（ビデオが読み込まれるまで） */}
-                      {isVideoOff && (
-                        <div style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: '#555',
-                          color: '#fff',
-                          fontSize: '2em',
-                          zIndex: 10
-                        }}>
-                          📷
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    // 通常のアイコン表示
-                    p.name?.charAt(0) || 'G'
-                  )}
+                  {p.name?.charAt(0) || 'G'}
+                </div>
+                <div className="participant-info">
+                  <span className="participant-name">{p.name}</span>
+                  <span className="participant-role">{p.role === 'host' ? 'ホスト' : 'ゲスト'}</span>
                 </div>
                 {p.id === 'local' && (
                   <div className="participant-controls">
@@ -427,50 +392,32 @@ export function SessionPage() {
           </div>
         </section>
 
-        {/* Vonage初期化（デバッグ用に表示） */}
+        {/* Video Conference Section */}
         {session.videoEnabled && (
-          <div style={{ 
-            position: 'fixed', 
-            top: '10px', 
-            right: '10px', 
-            width: '300px', 
-            height: '200px', 
-            backgroundColor: 'rgba(0,0,0,0.8)', 
-            border: '2px solid #00ffff', 
-            zIndex: 9999,
-            padding: '10px'
-          }}>
-            <div style={{ color: '#00ffff', fontSize: '12px', marginBottom: '10px' }}>
-              Vonage Debug Panel
+          <section className="panel video-panel">
+            <div className="panel-header">
+              <h2>ビデオ会議</h2>
+              <span className="badge">{participants.length}名参加中</span>
             </div>
-            <VonageStage
+            <VideoRoom
               apiKey={session.apiKey}
               sessionId={session.sessionId}
               token={session.token}
-              muted={isMuted}
-              videoOff={isVideoOff}
-              enabled={true}
               onParticipantsChange={(vonageParticipants) => {
-                console.log('[SessionPage] onParticipantsChange callback triggered');
-                console.log('[SessionPage] Vonage participants received:', vonageParticipants);
-                console.log('[SessionPage] Current participants state before update:', participants);
+                console.log('[SessionPage] Vonage participants updated:', vonageParticipants);
                 
                 const updatedParticipants = [
                   { id: 'local', name: 'You', role: 'host' as const, isSpeaking: false },
-                  ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
+                  ...vonageParticipants
+                    .filter(p => p.id !== 'local') // Avoid duplicates
+                    .map(p => ({ ...p, isSpeaking: false }))
                 ];
                 
-                console.log('[SessionPage] Updated participants to set:', updatedParticipants);
-                console.log('[SessionPage] Participant count change:', participants.length, '->', updatedParticipants.length);
                 setParticipants(updatedParticipants);
-                
-                // 状態更新後の確認用（次のレンダリングで確認）
-                setTimeout(() => {
-                  console.log('[SessionPage] Participants state after update (async check):', participants);
-                }, 100);
               }}
+              onLeave={handleLeave}
             />
-          </div>
+          </section>
         )}
 
         {/* 2列レイアウト: 左側に会議治安指数と話者別発言割合、右側にリアルタイム分析 */}

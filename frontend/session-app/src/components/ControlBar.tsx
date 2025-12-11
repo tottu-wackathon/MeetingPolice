@@ -1,36 +1,107 @@
-type Props = {
-  isMuted: boolean;
-  isVideoOff: boolean;
-  handRaised: boolean;
-  onToggleMute: () => void;
+import { useState } from 'react';
+
+interface ControlBarProps {
+  isAudioEnabled: boolean;
+  isVideoEnabled: boolean;
+  isScreenSharing: boolean;
+  onToggleAudio: () => void;
   onToggleVideo: () => void;
-  onToggleHand: () => void;
+  onToggleScreenShare: () => void;
   onLeave: () => void;
-};
+  participantCount: number;
+}
 
 export function ControlBar({
-  isMuted,
-  isVideoOff,
-  handRaised,
-  onToggleMute,
+  isAudioEnabled,
+  isVideoEnabled,
+  isScreenSharing,
+  onToggleAudio,
   onToggleVideo,
-  onToggleHand,
+  onToggleScreenShare,
   onLeave,
-}: Props) {
+  participantCount,
+}: ControlBarProps) {
+  const [showTooltip, setShowTooltip] = useState<string | null>(null);
+
   return (
-    <div className="floating-controls">
-      <button type="button" onClick={onToggleMute} className={`icon-btn ${isMuted ? 'off' : ''}`} title={isMuted ? 'ミュート解除' : 'ミュート'}>
-        {isMuted ? '🔇' : '🎙️'}
-      </button>
-      <button type="button" onClick={onToggleVideo} className={`icon-btn ${isVideoOff ? 'off' : ''}`} title={isVideoOff ? 'ビデオ再開' : 'ビデオ停止'}>
-        {isVideoOff ? '📷' : '🎥'}
-      </button>
-      <button type="button" onClick={onToggleHand} className={`icon-btn ${handRaised ? 'active' : ''}`} title={handRaised ? '手を下げる' : '手を挙げる'}>
-        ✋
-      </button>
-      <button type="button" className="icon-btn danger" onClick={onLeave} title="退出">
-        🚪
-      </button>
+    <div className="control-bar">
+      <div className="control-group">
+        {/* Audio control */}
+        <button
+          type="button"
+          onClick={onToggleAudio}
+          className={`control-btn ${!isAudioEnabled ? 'off' : ''}`}
+          title={isAudioEnabled ? 'ミュート' : 'ミュート解除'}
+          onMouseEnter={() => setShowTooltip('audio')}
+          onMouseLeave={() => setShowTooltip(null)}
+        >
+          {isAudioEnabled ? '🎙️' : '🔇'}
+          {showTooltip === 'audio' && (
+            <div className="tooltip">
+              {isAudioEnabled ? 'ミュート' : 'ミュート解除'}
+            </div>
+          )}
+        </button>
+
+        {/* Video control */}
+        <button
+          type="button"
+          onClick={onToggleVideo}
+          className={`control-btn ${!isVideoEnabled ? 'off' : ''}`}
+          title={isVideoEnabled ? 'ビデオ停止' : 'ビデオ開始'}
+          onMouseEnter={() => setShowTooltip('video')}
+          onMouseLeave={() => setShowTooltip(null)}
+        >
+          {isVideoEnabled ? '🎥' : '📷'}
+          {showTooltip === 'video' && (
+            <div className="tooltip">
+              {isVideoEnabled ? 'ビデオ停止' : 'ビデオ開始'}
+            </div>
+          )}
+        </button>
+
+        {/* Screen share control */}
+        <button
+          type="button"
+          onClick={onToggleScreenShare}
+          className={`control-btn ${isScreenSharing ? 'active' : ''}`}
+          title={isScreenSharing ? '画面共有停止' : '画面共有開始'}
+          onMouseEnter={() => setShowTooltip('screen')}
+          onMouseLeave={() => setShowTooltip(null)}
+        >
+          {isScreenSharing ? '🖥️' : '📺'}
+          {showTooltip === 'screen' && (
+            <div className="tooltip">
+              {isScreenSharing ? '画面共有停止' : '画面共有開始'}
+            </div>
+          )}
+        </button>
+      </div>
+
+      <div className="control-info">
+        <span className="participant-count">
+          👥 {participantCount}名
+        </span>
+      </div>
+
+      <div className="control-group">
+        {/* Leave button */}
+        <button
+          type="button"
+          className="control-btn danger"
+          onClick={onLeave}
+          title="会議を退出"
+          onMouseEnter={() => setShowTooltip('leave')}
+          onMouseLeave={() => setShowTooltip(null)}
+        >
+          🚪
+          {showTooltip === 'leave' && (
+            <div className="tooltip">
+              会議を退出
+            </div>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
