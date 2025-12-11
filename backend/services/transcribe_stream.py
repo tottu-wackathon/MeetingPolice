@@ -201,7 +201,7 @@ class TranscribeStream:
                                 # Extract speaker information from Transcribe Streaming
                                 speaker_label = None
                                 
-                                # Method 1: Check items for speaker labels
+                                # Method 1: Check items for speaker labels (most reliable)
                                 if hasattr(result.alternatives[0], 'items') and result.alternatives[0].items:
                                     speaker_counts = {}
                                     for item in result.alternatives[0].items:
@@ -213,22 +213,24 @@ class TranscribeStream:
                                         # Get the most frequent speaker
                                         most_frequent_speaker = max(speaker_counts, key=speaker_counts.get)
                                         speaker_label = f"spk_{most_frequent_speaker}"
+                                        logger.debug(f"Speaker from items: {speaker_label} (counts: {speaker_counts})")
                                 
                                 # Method 2: Check result-level speaker information
                                 if not speaker_label and hasattr(result, 'speaker_label') and result.speaker_label:
                                     speaker_label = result.speaker_label
+                                    logger.debug(f"Speaker from result: {speaker_label}")
                                 
                                 # Method 3: Check alternatives for speaker info
                                 if not speaker_label:
                                     for alt in result.alternatives:
                                         if hasattr(alt, 'speaker') and alt.speaker:
                                             speaker_label = f"spk_{alt.speaker}"
+                                            logger.debug(f"Speaker from alternatives: {speaker_label}")
                                             break
                                 
-                                # Fallback: use default speaker if no label detected
+                                # Fallback: no speaker label detected
                                 if not speaker_label:
-                                    speaker_label = "spk_0"  # Default speaker
-                                    logger.warning("No speaker label detected, using default spk_0")
+                                    logger.debug("No speaker label detected from Transcribe, will use Speaker 0")
                                 
                                 logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
                                           transcript, result.is_partial, speaker_label)

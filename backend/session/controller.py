@@ -175,8 +175,15 @@ class SessionController:
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
                     # Extract speaker information from transcribe result
-                    raw_speaker = result.get("speaker_label", "spk_0")  # Default to spk_0 if no speaker info
+                    raw_speaker = result.get("speaker_label")
+                    if not raw_speaker:
+                        raw_speaker = "spk_unk"  # Unknown speaker
+                        self.logger.debug(f"No speaker label in result, using spk_unk")
+                    else:
+                        self.logger.debug(f"Raw speaker label from Transcribe: {raw_speaker}")
+                    
                     speaker_label = self._speaker_name(session_data, raw_speaker)
+                    self.logger.info(f"Speaker mapping: {raw_speaker} -> {speaker_label}")
                     
                     # Integrated transcription and analysis handling
                     asyncio.create_task(self._handle_integrated_result(
@@ -306,18 +313,31 @@ class SessionController:
         return key_str or "spk_unk"
 
     def _speaker_name(self, session_data: dict, raw_label: str | None) -> str:
-        """Get friendly speaker name."""
+        """Get friendly speaker name with dynamic mapping like poc_satomin."""
         key = self._normalize_raw_label(raw_label)
-        if key == "spk_unk":
-            session_data["speaker_labels"].setdefault("spk_unk", "判別中...")
-            return session_data["speaker_labels"]["spk_unk"]
-            
-        if key not in session_data["speaker_labels"]:
-            label = f"Speaker {session_data['next_speaker_index']}"
-            session_data["speaker_labels"][key] = label
+        
+        # Initialize speaker management if not exists
+        if "speaker_labels" not in session_data:
+            session_data["speaker_labels"] = {}
+            session_data["next_speaker_index"] = 1
+        
+        # Handle unknown/unidentified speakers
+        if key == "spk_unk" or not key:
+            return "Speaker 0"  # Default for unidentified speakers
+        
+        # Check if this speaker label has been seen before
+        if key in session_data["speaker_labels"]:
+            # Known speaker - return existing mapping
+            existing_label = session_data["speaker_labels"][key]
+            self.logger.info(f"Known speaker: {key} -> {existing_label}")
+            return existing_label
+        else:
+            # New speaker - assign next available Speaker number
+            new_label = f"Speaker {session_data['next_speaker_index']}"
+            session_data["speaker_labels"][key] = new_label
             session_data["next_speaker_index"] += 1
-            
-        return session_data["speaker_labels"][key]
+            self.logger.info(f"New speaker detected: {key} -> {new_label}")
+            return new_label
 
     async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool, websocket: WebSocket) -> None:
         """Handle transcription result with integrated real-time analysis."""
@@ -334,9 +354,10 @@ class SessionController:
         
         # Check if this is a new speaker or continuation (strict speaker-label based)
         current_speaker = session_data.get('current_analysis_speaker')
+        current_raw_speaker = session_data.get('current_analysis_raw_speaker')
         is_new_speaker = (current_speaker is not None and current_speaker != speaker_label)
         
-        self.logger.info(f"Speaker check: current='{current_speaker}', new='{speaker_label}', is_new={is_new_speaker}, is_partial={is_partial}, is_final={is_final}")
+        self.logger.info(f"Speaker analysis: current='{current_speaker}' (raw: {current_raw_speaker}), new='{speaker_label}' (raw: {raw_label}), is_new={is_new_speaker}, is_partial={is_partial}")
         
         # Create new entry only when:
         # 1. First utterance (no current entry)
@@ -345,19 +366,26 @@ class SessionController:
             # New speaker or first utterance - create new analysis entry
             session_data['current_analysis_index'] += 1
             session_data['current_analysis_speaker'] = speaker_label
+            session_data['current_analysis_raw_speaker'] = raw_label
             session_data['current_analysis_entry'] = {
                 "index": session_data['current_analysis_index'],
                 "speaker": speaker_label,
+                "raw_speaker": raw_label,
                 "text": text,
                 "ai_status": "AI暫定"
             }
+            
+            self.logger.info(f"Created new analysis entry: {speaker_label} (raw: {raw_label}) - '{text[:50]}...'")
             
             # Send new analysis entry
             await self._send_analysis_update(websocket, session_data, is_partial)
             
         else:
             # Same speaker - update existing entry
+            old_text = session_data['current_analysis_entry']['text']
             session_data['current_analysis_entry']['text'] = text
+            
+            self.logger.debug(f"Updated existing entry: {speaker_label} - '{old_text[:30]}...' -> '{text[:30]}...'")
             
             # Send update for existing entry
             await self._send_analysis_update(websocket, session_data, is_partial)
