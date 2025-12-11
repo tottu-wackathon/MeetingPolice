@@ -185,16 +185,11 @@ class TranscribeStream:
             show_speaker_label=True,  # Enable speaker diarization
         )
         
-        # Create event handler with speaker detection
+        # Create event handler for speaker-label based detection
         class MyEventHandler(TranscriptResultStreamHandler):
             def __init__(self, output_stream, callback):
                 super().__init__(output_stream)
                 self.callback = callback
-                self.last_final_time = 0
-                self.current_speaker = "spk_0"
-                self.speaker_counter = 0
-                self.last_transcript_length = 0
-                self.silence_threshold = 2.0  # seconds
                 
             async def handle_transcript_event(self, transcript_event: TranscriptEvent):
                 try:
@@ -230,21 +225,10 @@ class TranscribeStream:
                                             speaker_label = f"spk_{alt.speaker}"
                                             break
                                 
-                                # Fallback: time-based speaker detection
+                                # Fallback: use default speaker if no label detected
                                 if not speaker_label:
-                                    import time
-                                    current_time = time.time()
-                                    
-                                    if not result.is_partial:
-                                        time_gap = current_time - self.last_final_time
-                                        if time_gap > self.silence_threshold and self.last_final_time > 0:
-                                            self.speaker_counter += 1
-                                            self.current_speaker = f"spk_{self.speaker_counter}"
-                                            logger.info(f"Speaker change detected after {time_gap:.1f}s -> {self.current_speaker}")
-                                        
-                                        self.last_final_time = current_time
-                                    
-                                    speaker_label = self.current_speaker
+                                    speaker_label = "spk_0"  # Default speaker
+                                    logger.warning("No speaker label detected, using default spk_0")
                                 
                                 logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
                                           transcript, result.is_partial, speaker_label)
@@ -357,26 +341,10 @@ class TranscribeStream:
                         if speaker_counts:
                             speaker_label = max(speaker_counts, key=speaker_counts.get)
                     
-                    # Fallback to simple time-based detection if no speaker info
+                    # Fallback: use default speaker if no label detected
                     if not speaker_label:
-                        if not hasattr(self, 'boto3_last_final_time'):
-                            self.boto3_last_final_time = 0
-                            self.boto3_current_speaker = "spk_0"
-                            self.boto3_speaker_counter = 0
-                        
-                        import time
-                        current_time = time.time()
-                        
-                        if not result.get("IsPartial", False):
-                            time_gap = current_time - self.boto3_last_final_time
-                            if time_gap > 3.0 and self.boto3_last_final_time > 0:
-                                self.boto3_speaker_counter += 1
-                                self.boto3_current_speaker = f"spk_{self.boto3_speaker_counter}"
-                                logger.info(f"boto3: Speaker change after {time_gap:.1f}s -> {self.boto3_current_speaker}")
-                            
-                            self.boto3_last_final_time = current_time
-                        
-                        speaker_label = self.boto3_current_speaker
+                        speaker_label = "spk_0"  # Default speaker for boto3
+                        logger.warning("boto3: No speaker label detected, using default spk_0")
                     
                     logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
                     payload = {

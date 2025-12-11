@@ -332,13 +332,16 @@ class SessionController:
             session_data['current_analysis_speaker'] = None
             session_data['current_analysis_index'] = 1
         
-        # Check if this is a new speaker or continuation
+        # Check if this is a new speaker or continuation (strict speaker-label based)
         current_speaker = session_data.get('current_analysis_speaker')
-        is_new_speaker = (current_speaker != speaker_label)
+        is_new_speaker = (current_speaker is not None and current_speaker != speaker_label)
         
-        self.logger.info(f"Speaker check: current='{current_speaker}', new='{speaker_label}', is_new={is_new_speaker}, is_partial={is_partial}")
+        self.logger.info(f"Speaker check: current='{current_speaker}', new='{speaker_label}', is_new={is_new_speaker}, is_partial={is_partial}, is_final={is_final}")
         
-        if is_new_speaker or session_data['current_analysis_entry'] is None:
+        # Create new entry only when:
+        # 1. First utterance (no current entry)
+        # 2. Speaker actually changed (different label)
+        if session_data['current_analysis_entry'] is None or is_new_speaker:
             # New speaker or first utterance - create new analysis entry
             session_data['current_analysis_index'] += 1
             session_data['current_analysis_speaker'] = speaker_label
@@ -359,9 +362,9 @@ class SessionController:
             # Send update for existing entry
             await self._send_analysis_update(websocket, session_data, is_partial)
         
-        # When utterance is final (speaker change), trigger Bedrock and mark as AI確定
-        if is_final and session_data['current_analysis_entry']:
-            # Trigger Bedrock analysis
+        # Trigger Bedrock analysis when speaker changes (not just when final)
+        if is_new_speaker and session_data['current_analysis_entry']:
+            # Previous speaker finished - finalize their analysis
             asyncio.create_task(self._finalize_analysis_with_bedrock(
                 session_data, websocket
             ))
