@@ -21,6 +21,14 @@ export function SessionPage() {
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
+  
+  // 🔍 CONNECTION HEALTH MONITORING
+  const [connectionHealth, setConnectionHealth] = useState({
+    lastTranscriptTime: Date.now(),
+    transcriptCount: 0,
+    isHealthy: true,
+    connectionDuration: 0
+  });
 
   // 警察出動とアライメント警告の状態管理（古いロジックのみ使用）
 
@@ -45,6 +53,34 @@ export function SessionPage() {
     },
     isMuted // ミュート状態を渡す
   );
+  
+  // 🔍 CONNECTION HEALTH MONITORING
+  useEffect(() => {
+    if (transcripts.length > 0) {
+      const now = Date.now();
+      setConnectionHealth(prev => ({
+        lastTranscriptTime: now,
+        transcriptCount: transcripts.length,
+        isHealthy: true,
+        connectionDuration: now - (prev.connectionDuration || now)
+      }));
+    }
+  }, [transcripts]);
+  
+  // 🔍 HEALTH CHECK: Detect if transcription stopped
+  useEffect(() => {
+    const healthCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastTranscript = now - connectionHealth.lastTranscriptTime;
+      
+      if (timeSinceLastTranscript > 60000 && session) { // 1 minute without transcripts
+        console.warn('🚨 Transcription may have stopped - no transcripts for', timeSinceLastTranscript / 1000, 'seconds');
+        setConnectionHealth(prev => ({ ...prev, isHealthy: false }));
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(healthCheckInterval);
+  }, [connectionHealth.lastTranscriptTime, session]);
   
   // poc_satominと同じ警告機能
   const [showWarning, setShowWarning] = useState<boolean>(false);
