@@ -15,14 +15,6 @@ except ImportError:
     Auth = None
     TokenOptions = None
 
-# OpenTok SDK for token generation (compatible with frontend)
-try:
-    from opentok import OpenTok
-    OPENTOK_AVAILABLE = True
-except ImportError:
-    OPENTOK_AVAILABLE = False
-    OpenTok = None
-
 from backend.config import get_settings
 
 
@@ -45,20 +37,8 @@ class VonageClient:
         
         # Initialize Vonage Video API with JWT authentication
         self.logger.info("🔍 Checking initialization requirements...")
-        self.logger.info("VONAGE_AVAILABLE=%s, OPENTOK_AVAILABLE=%s, has_app_id=%s, has_api_key=%s, private_key_loaded=%s", 
-                         VONAGE_AVAILABLE, OPENTOK_AVAILABLE, bool(self.application_id), bool(self.api_key), self._load_private_key())
-        
-        # Initialize OpenTok client for token generation (compatible with frontend)
-        if OPENTOK_AVAILABLE and self.api_key:
-            try:
-                # Use API key as secret for OpenTok compatibility
-                self.opentok_client = OpenTok(self.api_key, self.api_key)
-                self.logger.info("✅ OpenTok client initialized for token generation")
-            except Exception as e:
-                self.logger.warning(f"OpenTok client initialization failed: {e}")
-                self.opentok_client = None
-        else:
-            self.opentok_client = None
+        self.logger.info("VONAGE_AVAILABLE=%s, has_app_id=%s, has_api_key=%s, private_key_loaded=%s", 
+                         VONAGE_AVAILABLE, bool(self.application_id), bool(self.api_key), self._load_private_key())
         
         if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
@@ -171,15 +151,7 @@ class VonageClient:
             return token
         
         try:
-            # Try OpenTok client first for better compatibility
-            if self.opentok_client:
-                self.logger.info("🔧 Using OpenTok client for token generation (better compatibility)")
-                expire_time = int(time.time()) + ttl_seconds
-                token = self.opentok_client.generate_token(session_id, expire_time=expire_time)
-                self.logger.info("✅ OpenTok token generated successfully")
-                return token
-            
-            # Fallback to Vonage Video Python Server SDK v4.7.2
+            # Generate token with Vonage Video Python Server SDK v4.7.2
             self.logger.info("🔧 Using Vonage Video SDK for token generation")
             expire_time = int(time.time()) + ttl_seconds
             

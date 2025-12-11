@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-// eslint-disable-next-line import/no-unresolved
-import OT from '@opentok/client';
+import { VideoClient, Session, Publisher } from '@vonage/client-sdk-video';
 
 type Props = {
   apiKey: string;
@@ -97,16 +96,15 @@ export function VonageStage({
       return undefined;
     }
 
-    // グローバルなOTオブジェクトを確認
-    const OTClient: any = (window as any).OT || OT;
-    console.log('[VonageStage] Checking OT availability:', { 
-      hasWindowOT: !!(window as any).OT, 
-      hasImportedOT: !!OT, 
-      hasInitSession: !!OTClient?.initSession 
+    // Vonage Client SDK Video の確認
+    console.log('[VonageStage] Checking Vonage Client SDK Video availability:', { 
+      hasVideoClient: !!VideoClient,
+      hasSession: !!Session,
+      hasPublisher: !!Publisher
     });
     
-    if (!OTClient?.initSession) {
-      console.log('[VonageStage] OpenTok SDK not available - OT object or initSession method missing');
+    if (!VideoClient || !Session || !Publisher) {
+      console.log('[VonageStage] Vonage Client SDK Video not available');
       setStatus('error');
       setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
@@ -122,11 +120,13 @@ export function VonageStage({
         apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
         sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined' 
       });
-      const session = OTClient.initSession(apiKey, sessionId);
+      
+      const client = new VideoClient();
+      const session = new Session(client, sessionId, { apiKey });
       sessionRef.current = session;
       console.log('[VonageStage] Session created successfully');
 
-      session.on('sessionConnected', (event: any) => {
+      session.on('connected', (event: any) => {
         console.log('[Vonage] Session connected successfully');
         console.log('[Vonage] sessionConnected event:', event);
         const info = {
@@ -143,7 +143,7 @@ export function VonageStage({
         setStatus('connected');
       });
       
-      session.on('sessionDisconnected', (event: any) => {
+      session.on('disconnected', (event: any) => {
         console.log('[Vonage] Session disconnected:', event.reason);
         setStatus('idle');
       });
@@ -235,15 +235,20 @@ export function VonageStage({
         },
       };
 
-      const publisher = OTClient.initPublisher(
-        publisherContainer,
-        publisherOptions,
-        (err: any) => {
-          if (err) {
-            setError(err.message || String(err));
-          }
-        },
-      );
+      const publisher = new Publisher(client, publisherContainer, publisherOptions);
+      
+      publisher.on('accessDenied', (err: any) => {
+        console.error('[VonageStage] Publisher access denied:', err);
+        setError('カメラ・マイクへのアクセスが拒否されました');
+      });
+      
+      publisher.on('accessDialogOpened', () => {
+        console.log('[VonageStage] Access dialog opened');
+      });
+      
+      publisher.on('accessDialogClosed', () => {
+        console.log('[VonageStage] Access dialog closed');
+      });
       publisherRef.current = publisher;
 
       console.log('[VonageStage] Attempting to connect with token:', token ? token.substring(0, 20) + '...' : 'undefined');
@@ -275,15 +280,22 @@ export function VonageStage({
         console.log('[VonageStage] Token analysis failed:', e);
       }
       
-      session.connect(token, (err: any) => {
-        if (err) {
-          console.error('[VonageStage] Connection failed with error:', err);
+      session.connect(token)
+        .then(() => {
+          console.log('[VonageStage] Connected successfully, publishing...');
+          return session.publish(publisher);
+        })
+        .then(() => {
+          console.log('[VonageStage] Published successfully');
+        })
+        .catch((err: any) => {
+          console.error('[VonageStage] Connection or publish failed:', err);
           console.error('[VonageStage] Error code:', err.code);
           console.error('[VonageStage] Error message:', err.message);
           console.error('[VonageStage] Error name:', err.name);
           console.error('[VonageStage] Full error object:', JSON.stringify(err, null, 2));
           
-          // OpenTok エラーコードの詳細
+          // Vonage エラーコードの詳細
           const errorMessages: { [key: number]: string } = {
             1004: 'Invalid token format - トークンの形式が無効です',
             1005: 'Invalid session ID - セッションIDが無効です',
@@ -297,18 +309,7 @@ export function VonageStage({
           
           setStatus('error');
           setError(`${detailedMessage}: ${err.message || String(err)}`);
-          return;
-        }
-        console.log('[VonageStage] Connected successfully, publishing...');
-        session.publish(publisher, (pubErr: any) => {
-          if (pubErr) {
-            console.error('[VonageStage] Publish failed:', pubErr);
-            setError(pubErr.message || String(pubErr));
-          } else {
-            console.log('[VonageStage] Published successfully');
-          }
         });
-      });
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
