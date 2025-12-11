@@ -133,18 +133,24 @@ export function VonageStage({
         removeParticipant(streamId);
       });
 
+      // 指定されたDOM要素またはデフォルトのコンテナを使用
+      const publisherContainer = document.getElementById('vonage-publisher') || publisherContainerRef.current;
+      
       const publisherOptions = {
-        insertMode: 'append' as const,
+        insertMode: 'replace' as const,
         width: '100%',
         height: '100%',
         publishAudio: !muted,
         publishVideo: !videoOff,
         mirror: true,
         name: 'You',
+        style: {
+          buttonDisplayMode: 'off', // コントロールボタンを非表示
+        },
       };
 
       const publisher = OTClient.initPublisher(
-        publisherContainerRef.current,
+        publisherContainer,
         publisherOptions,
         (err: any) => {
           if (err) {
@@ -215,44 +221,21 @@ export function VonageStage({
         fontSize: '0.85em',
         color: '#ccc'
       }}>
-        <div><strong>接続状況:</strong> {status}</div>
+        <div><strong>Vonage接続状況:</strong> {status}</div>
         <div><strong>APIキー:</strong> {apiKey ? `${apiKey.substring(0, 8)}...` : '未設定'}</div>
-        <div><strong>セッションID:</strong> {sessionId ? `${sessionId.substring(0, 20)}...` : '未設定'}</div>
-        <div><strong>トークン:</strong> {token ? `${token.substring(0, 20)}...` : '未設定'}</div>
         <div><strong>ミュート:</strong> {muted ? 'はい' : 'いいえ'}</div>
         <div><strong>ビデオオフ:</strong> {videoOff ? 'はい' : 'いいえ'}</div>
         {error && <div style={{ color: '#f44336' }}><strong>エラー:</strong> {error}</div>}
+        <div style={{ marginTop: '8px', fontSize: '0.8em', color: '#999' }}>
+          💡 ビデオは参加者アイコン内に表示されます
+        </div>
       </div>
 
-      <section className="video-stage compact">
-        <div className="video-badge">
-          {!enabled ? 'Audio Only' : status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'error' ? 'Error' : 'Idle'}
-        </div>
-        <div className="video-strip">
-          <div className="video-tile small">
-            <div className="video-feed" ref={publisherContainerRef}>
-              {!enabled && <p className="video-placeholder">Audio Only</p>}
-              {enabled && status === 'idle' && <p className="video-placeholder">待機中...</p>}
-              {enabled && status === 'connecting' && <p className="video-placeholder">接続中...</p>}
-              {enabled && status === 'connected' && !publisherRef.current && <p className="video-placeholder">カメラ初期化中...</p>}
-              {enabled && status === 'error' && <p className="video-placeholder">接続エラー</p>}
-            </div>
-            <div className="video-meta">
-              <p className="name">あなた</p>
-            </div>
-          </div>
-          <div className="video-tile small" ref={subscriberContainerRef}>
-            {!enabled && <p className="video-placeholder">Audio Only</p>}
-            {enabled && status !== 'connected' && <p className="video-placeholder">参加者待ち</p>}
-            {enabled && status === 'connected' && <p className="video-placeholder">参加者なし</p>}
-          </div>
-        </div>
-        {(fallbackNotice || error) && (
-          <p className="error" role="alert">
-            {fallbackNotice || error}
-          </p>
-        )}
-      </section>
+      {/* 隠れたコンテナ（他の参加者用） */}
+      <div style={{ display: 'none' }}>
+        <div ref={publisherContainerRef}></div>
+        <div ref={subscriberContainerRef}></div>
+      </div>
     </div>
   );
 }

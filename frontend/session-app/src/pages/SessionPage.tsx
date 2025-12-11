@@ -335,52 +335,49 @@ export function SessionPage() {
   if (session) {
     content = (
       <>
-        {/* Vonage Video Stage */}
-        <section className="panel">
-          <div className="panel-header">
-            <h2>ビデオ通話</h2>
-            <span className="badge">
-              {session.videoEnabled ? 'Vonage接続' : '音声のみ'}
-            </span>
-          </div>
-          {session.videoEnabled ? (
-            <VonageStage
-              apiKey={session.apiKey}
-              sessionId={session.sessionId}
-              token={session.token}
-              muted={isMuted}
-              videoOff={isVideoOff}
-              enabled={true}
-              onParticipantsChange={(vonageParticipants) => {
-                // Update participants from Vonage
-                setParticipants([
-                  { id: 'local', name: 'You', role: 'host', isSpeaking: false },
-                  ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
-                ]);
-              }}
-            />
-          ) : (
-            <div style={{ 
-              padding: '40px', 
-              textAlign: 'center', 
-              backgroundColor: 'rgba(255, 152, 0, 0.1)',
-              borderRadius: '8px',
-              color: '#ffb74d'
-            }}>
-              <p>🎙️ 音声のみモードで動作中</p>
-              <p>ビデオ通話機能を利用するには、Vonage APIの設定が必要です。</p>
-              <small>文字起こし機能は正常に動作します。</small>
-            </div>
-          )}
-        </section>
-
         {/* 参加者一覧 */}
         <section className="panel participants-panel">
           <div className="participants-grid">
             {participants.map((p) => (
               <div key={p.id} className="participant-window">
                 <div className="participant-avatar">
-                  {p.name?.charAt(0) || 'G'}
+                  {p.id === 'local' && session.videoEnabled ? (
+                    // 自分のビデオを表示
+                    <div 
+                      id="vonage-publisher" 
+                      style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        borderRadius: '50%',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        backgroundColor: '#333'
+                      }}
+                    >
+                      {/* フォールバック表示（ビデオが読み込まれるまで） */}
+                      {isVideoOff && (
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: '#555',
+                          color: '#fff',
+                          fontSize: '2em',
+                          zIndex: 10
+                        }}>
+                          📷
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // 通常のアイコン表示
+                    p.name?.charAt(0) || 'G'
+                  )}
                 </div>
                 {p.id === 'local' && (
                   <div className="participant-controls">
@@ -422,6 +419,26 @@ export function SessionPage() {
             ))}
           </div>
         </section>
+
+        {/* 隠れたVonage初期化 */}
+        {session.videoEnabled && (
+          <div style={{ display: 'none' }}>
+            <VonageStage
+              apiKey={session.apiKey}
+              sessionId={session.sessionId}
+              token={session.token}
+              muted={isMuted}
+              videoOff={isVideoOff}
+              enabled={true}
+              onParticipantsChange={(vonageParticipants) => {
+                setParticipants([
+                  { id: 'local', name: 'You', role: 'host', isSpeaking: false },
+                  ...vonageParticipants.map(p => ({ ...p, isSpeaking: false }))
+                ]);
+              }}
+            />
+          </div>
+        )}
 
         {/* 2列レイアウト: 左側に会議治安指数と話者別発言割合、右側にリアルタイム分析 */}
         <div className="poc-columns">
