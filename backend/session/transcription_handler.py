@@ -311,7 +311,7 @@ class TranscriptionHandler:
         
         # 音声認識結果を処理（自動確定付き）
         await self._handle_result_with_auto_finalize(
-            session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial
+            session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial, speaker_manager
         )
         
         # 🚀 リアルタイム分析: 5文字以上の場合に分析
@@ -330,7 +330,8 @@ class TranscriptionHandler:
         speaker_label: str, 
         raw_label: str, 
         text: str, 
-        is_final: bool
+        is_final: bool,
+        speaker_manager
     ) -> None:
         """時間ベース自動確定付きの音声認識結果処理"""
         

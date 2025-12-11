@@ -9,7 +9,6 @@ import re
 from typing import Dict, Any, List
 
 from backend.services.bedrock_utils import classify_transcript_segments, _guess_category
-from backend.session.police_dispatch import PoliceDispatchManager
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ class AnalysisHandler:
     
     def __init__(self):
         self.logger = logger
-        self.police_dispatch = PoliceDispatchManager()
     
     async def classify_and_send_realtime(
         self, 
@@ -146,7 +144,10 @@ class AnalysisHandler:
                 self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
                 
                 # 警察出動チェック（Bedrockで確定した結果のみ）
-                await self.police_dispatch.check_and_trigger(
+                # police_dispatchは別途インポートして使用
+                from backend.session.police_dispatch import PoliceDispatchManager
+                police_dispatch = PoliceDispatchManager()
+                await police_dispatch.check_and_trigger(
                     session_data, alignment_ai, text, speaker, category_ai
                 )
             else:
@@ -169,7 +170,9 @@ class AnalysisHandler:
                 self.logger.info(f"✅ キーワード分析確定: {speaker} - {text[:30]}... → [{category_fallback}] {alignment_fallback}%")
                 
                 # 警察出動チェック（フォールバック結果）
-                await self.police_dispatch.check_and_trigger(
+                from backend.session.police_dispatch import PoliceDispatchManager
+                police_dispatch = PoliceDispatchManager()
+                await police_dispatch.check_and_trigger(
                     session_data, alignment_fallback, text, speaker, category_fallback
                 )
         
@@ -223,63 +226,9 @@ class AnalysisHandler:
         
         return alignment
     
-    def split_long_text(self, text: str, max_length: int = 80, min_length: int = 25) -> List[str]:
-        """長いテキストを句読点で分割（poc_satomin準拠）"""
-        if len(text) <= max_length:
-            return [text]
-        
-        # 句読点で分割（句読点を含める）
-        parts = re.split(r'(。|！|？)', text)
-        
-        # 句読点を前の文に結合
-        sentences = []
-        for i in range(0, len(parts), 2):
-            sentence = parts[i]
-            if i + 1 < len(parts):
-                sentence += parts[i + 1]  # 句読点を追加
-            if sentence.strip():
-                sentences.append(sentence.strip())
-        
-        # 長い文をさらに読点で分割
-        result = []
-        for sentence in sentences:
-            if len(sentence) <= max_length:
-                result.append(sentence)
-            else:
-                # 読点で分割
-                sub_parts = re.split(r'(、|,)', sentence)
-                buffer = ""
-                for i in range(0, len(sub_parts)):
-                    part = sub_parts[i]
-                    if len(buffer + part) <= max_length:
-                        buffer += part
-                    else:
-                        if buffer.strip():
-                            result.append(buffer.strip())
-                        buffer = part
-                if buffer.strip():
-                    result.append(buffer.strip())
-        
-        # 短い文を前の文と結合
-        final_result = []
-        for sentence in result:
-            if final_result and len(sentence) < min_length:
-                final_result[-1] += sentence
-            else:
-                final_result.append(sentence)
-        
-        return [s for s in final_result if s]
-    
     def _should_skip_analysis(self, text: str, category: str) -> bool:
         """
         bedrock_utils.pyの高度な分類ルールを使用して分析をスキップすべきかを判定
-        
-        Args:
-            text: 発言内容
-            category: _guess_categoryで推定されたカテゴリ
-            
-        Returns:
-            bool: 分析をスキップすべき場合はTrue
         """
         text_stripped = text.strip()
         
@@ -303,30 +252,4 @@ class AnalysisHandler:
                 if text_stripped == response or (len(text_stripped) <= 10 and response in text_stripped):
                     return True
         
-        # 名前だけの自己紹介（例: "田中です"）は分析する（「報告」として重要）
-        # ただし、非常に短い場合はスキップ
-        if len(text_stripped) <= 4 and text_stripped.endswith("です"):
-            return True
-        
         return False
-
-    async def classify_entry_with_splitting(
-        self, 
-        session_data: dict, 
-        entry: dict
-    ) -> None:
-        """エントリを分割してリアルタイム分析を実行（poc_satomin準拠）"""
-        split_texts = self.split_long_text(entry["text"])
-        meeting_id = session_data["meeting_id"]
-        
-        for i, split_text in enumerate(split_texts):
-            # 非常に短いテキストをスキップ
-            if len(split_text.strip()) < 10:
-                continue
-                
-            await self.classify_and_send_realtime(
-                session_data, 
-                split_text, 
-                entry["speaker"], 
-                entry["index"] * 1000 + i  # ユニークなインデックス
-            )

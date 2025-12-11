@@ -201,13 +201,6 @@ class PoliceDispatchManager:
     def _should_skip_police_dispatch_check(self, text: str, category: str = None) -> bool:
         """
         bedrock_utils.pyの高度な分類ルールを使用して短い返答や相槌をスキップ
-        
-        Args:
-            text: 発言内容
-            category: Bedrockで分類されたカテゴリ（オプション）
-            
-        Returns:
-            bool: スキップすべき場合はTrue
         """
         text_stripped = text.strip()
         
@@ -245,41 +238,4 @@ class PoliceDispatchManager:
                 self.logger.info(f"🔍 名前の発言をスキップ: '{text_stripped}'")
                 return True
         
-        # 感謝・謝罪・挨拶の短い発言
-        courtesy_patterns = [
-            "ありがとう", "すみません", "失礼", "お疲れ", "よろしく",
-            "助かり", "良かった", "分かりやすい", "心強い"
-        ]
-        
-        if len(text_stripped) <= 15 and any(pattern in text_stripped for pattern in courtesy_patterns):
-            self.logger.info(f"🔍 礼儀的な短い発言をスキップ: '{text_stripped}'")
-            return True
-        
-        # 相槌や同意の短い発言
-        agreement_patterns = ["そうですね", "なるほど", "確かに", "いいですね", "そうです"]
-        if text_stripped in agreement_patterns:
-            self.logger.info(f"🔍 相槌をスキップ: '{text_stripped}'")
-            return True
-        
         return False
-
-    def calculate_meeting_duration(self, session_data: dict) -> int:
-        """
-        会議の継続時間を計算（分単位）
-        """
-        try:
-            # セッション開始時刻を取得
-            if "session_start_time" not in session_data:
-                # セッション開始時刻が記録されていない場合は現在時刻を使用
-                session_data["session_start_time"] = time.time()
-                return 1
-            
-            start_time = session_data["session_start_time"]
-            current_time = time.time()
-            duration_seconds = current_time - start_time
-            duration_minutes = max(1, int(duration_seconds / 60))  # 最低1分
-            
-            return duration_minutes
-        except Exception as e:
-            self.logger.warning(f"Failed to calculate meeting duration: {e}")
-            return 1
