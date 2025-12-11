@@ -182,10 +182,9 @@ class TranscribeStream:
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
-            show_speaker_label=True,  # Enable speaker diarization
         )
         
-        # Create event handler for speaker-label based detection
+        # Create event handler
         class MyEventHandler(TranscriptResultStreamHandler):
             def __init__(self, output_stream, callback):
                 super().__init__(output_stream)
@@ -198,48 +197,10 @@ class TranscribeStream:
                         if result.alternatives:
                             transcript = result.alternatives[0].transcript
                             if transcript and transcript.strip():
-                                # Extract speaker information from Transcribe Streaming
-                                speaker_label = None
-                                
-                                # Method 1: Check items for speaker labels (most reliable)
-                                if hasattr(result.alternatives[0], 'items') and result.alternatives[0].items:
-                                    speaker_counts = {}
-                                    for item in result.alternatives[0].items:
-                                        if hasattr(item, 'speaker') and item.speaker:
-                                            speaker = item.speaker
-                                            speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
-                                    
-                                    if speaker_counts:
-                                        # Get the most frequent speaker
-                                        most_frequent_speaker = max(speaker_counts, key=speaker_counts.get)
-                                        speaker_label = f"spk_{most_frequent_speaker}"
-                                        logger.debug(f"Speaker from items: {speaker_label} (counts: {speaker_counts})")
-                                
-                                # Method 2: Check result-level speaker information
-                                if not speaker_label and hasattr(result, 'speaker_label') and result.speaker_label:
-                                    speaker_label = result.speaker_label
-                                    logger.debug(f"Speaker from result: {speaker_label}")
-                                
-                                # Method 3: Check alternatives for speaker info
-                                if not speaker_label:
-                                    for alt in result.alternatives:
-                                        if hasattr(alt, 'speaker') and alt.speaker:
-                                            speaker_label = f"spk_{alt.speaker}"
-                                            logger.debug(f"Speaker from alternatives: {speaker_label}")
-                                            break
-                                
-                                # Fallback: no speaker label detected
-                                if not speaker_label:
-                                    logger.debug("No speaker label detected from Transcribe, will use Speaker 0")
-                                
-                                logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
-                                          transcript, result.is_partial, speaker_label)
-                                
+                                logger.info("Transcribe result: %s (partial: %s)", transcript, result.is_partial)
                                 self.callback({
                                     "transcript": transcript.strip(),
                                     "is_partial": result.is_partial,
-                                    "speaker_label": speaker_label,
-                                    "result_id": getattr(result, 'result_id', None),
                                     "start_time": getattr(result, 'start_time', None),
                                     "end_time": getattr(result, 'end_time', None),
                                 })
@@ -304,8 +265,6 @@ class TranscribeStream:
                 LanguageCode=language_code,
                 MediaEncoding="pcm",
                 MediaSampleRateHertz=16000,
-                ShowSpeakerLabels=True,  # Enable speaker diarization for boto3
-                MaxSpeakerLabels=10,     # Support up to 10 speakers
                 AudioStream=_QueueAudioStream(audio_queue),
             )
             
@@ -328,32 +287,10 @@ class TranscribeStream:
                     if not text:
                         continue
                     
-                    # Extract speaker information from boto3 result
-                    speaker_label = None
-                    
-                    # Check for speaker information in items
-                    items = alternatives[0].get("Items", [])
-                    if items:
-                        speaker_counts = {}
-                        for item in items:
-                            if "Speaker" in item:
-                                speaker = item["Speaker"]
-                                speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
-                        
-                        if speaker_counts:
-                            speaker_label = max(speaker_counts, key=speaker_counts.get)
-                    
-                    # Fallback: use default speaker if no label detected
-                    if not speaker_label:
-                        speaker_label = "spk_0"  # Default speaker for boto3
-                        logger.warning("boto3: No speaker label detected, using default spk_0")
-                    
-                    logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
+                    logger.info("boto3 transcribe result: %s", text)
                     payload = {
                         "transcript": text,
                         "is_partial": result.get("IsPartial", False),
-                        "speaker_label": speaker_label,
-                        "result_id": result.get("ResultId"),
                         "start_time": result.get("StartTime"),
                         "end_time": result.get("EndTime"),
                     }

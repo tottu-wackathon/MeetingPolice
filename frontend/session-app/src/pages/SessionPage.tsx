@@ -22,7 +22,7 @@ export function SessionPage() {
   } = useMeetingSession();
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
-    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; is_partial?: boolean; ai_status?: string }>
+    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean }>
   >([]);
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
@@ -33,51 +33,18 @@ export function SessionPage() {
     session?.meetingId,
     (payload) => {
       // リアルタイム分析結果を受信
-      const { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status } = payload;
+      const { index, text, speaker, category, alignment, method, is_final } = payload;
       
       setRealtimeClassifications((prev) => {
-        const resultId = payload.result_id || `utterance_${index}`;
-        
-        // 既存エントリを result_id で検索（確実な統合）
-        const existingIndex = prev.findIndex((item) => 
-          (item as any).result_id === resultId
-        );
+        const existingIndex = prev.findIndex((item) => item.index === index);
         
         if (existingIndex >= 0) {
-          // 既存エントリを更新（同一発話の継続更新）
           const updated = [...prev];
-          updated[existingIndex] = { 
-            index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
-            result_id: resultId
-          } as any;
-          
-          console.log('[SessionPage] Continuous update:', { 
-            text: text.substring(0, 50), 
-            speaker, 
-            ai_status, 
-            position: existingIndex,
-            length: text.length
-          });
-          
+          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
           return updated;
         }
         
-        // 新しい発話エントリを追加
-        const newEntry = { 
-          index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
-          result_id: resultId
-        } as any;
-        
-        console.log('[SessionPage] New utterance:', { 
-          text: text.substring(0, 50), 
-          speaker, 
-          ai_status, 
-          index,
-          totalItems: prev.length + 1
-        });
-        
-        // 新しいエントリを末尾に追加（時系列順）
-        return [...prev, newEntry].slice(-50); // 最新50件に制限
+        return [...prev, { index, text, speaker, category, alignment, method, is_final }];
       });
     },
     isMuted // ミュート状態を渡す
@@ -383,86 +350,193 @@ export function SessionPage() {
           </div>
         </section>
 
-        {/* 2列レイアウト: 左側に会議治安指数と話者別発言割合、右側にリアルタイム分析 */}
+        {/* 2列レイアウト: 左側に文字起こし、右側にリアルタイム分析 */}
         <div className="poc-columns">
           <div className="poc-left">
-            {/* 会議治安指数 */}
-            {realtimeClassifications.length > 0 && (() => {
-              // コメント（短い発言）を除外
-              const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
-              if (validItems.length === 0) return null;
+            <section className="panel transcript-panel">
+              <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
+                  <p className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>リアルタイム文字起こし</p>
+                  <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>{transcripts.length} 行</h2>
+                </div>
+              </div>
+              <div className="transcript-feed">
+                {transcripts.slice().reverse().map((item, index) => {
+                  const itemData = item as any;
+                  const key = itemData.result_id ?? `idx-${itemData.index ?? index}`;
+                  
+                  return (
+                    <article key={key} className="transcript-item">
+                      <header>
+                        <strong>{displaySpeaker(item.speaker || 'Unknown')}</strong>
+                        {itemData.raw_speaker && <span className="pill mono">{itemData.raw_speaker}</span>}
+                        <span>{item.timestamp}</span>
+                        {item.isPartial && <span className="pill">部分</span>}
+                      </header>
+                      <p>{item.transcript}</p>
+                    </article>
+                  );
+                })}
+                {transcripts.length === 0 && <p className="faded">発言を開始すると文字起こしが表示されます。</p>}
+              </div>
+            </section>
+          </div>
 
-              const recent10 = validItems.slice(-10);
-              // 直近5件に重み3、それ以前に重み1の加重平均
-              const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-              const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
-              const avgAlignment = recent10.length
-                ? Math.round(
-                  recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
-                )
-                : 0;
+          <div className="poc-right">
 
-              const padding = 8; // 両端が見切れないように少し余白
+            <section className="panel">
+              <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
+                  <p className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>🔍 リアルタイム分析</p>
+                  <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>{realtimeClassifications.length} 件</h2>
+                </div>
+              </div>
 
-              const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
-              const bars = recent10.map((item, idx) => {
-                const x = padding + idx * barWidth + barWidth * 0.1;
-                const height = Math.max(0, Math.min(100, item.alignment));
-                const y = 100 - height;
-                return { x, y, height, value: item.alignment };
-              });
+              {speakerStats.length > 0 && (
+                <div
+                  style={{
+                    padding: '15px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    borderRadius: '8px',
+                    marginBottom: '16px',
+                    border: '2px solid #00ffff'
+                  }}
+                >
+                  <p style={{ margin: '0 0 12px 0', fontSize: '0.9em', color: '#00ffff', fontWeight: 'bold' }}>
+                    👥 話者別発言割合
+                  </p>
+                  {speakerStats.map(({ speaker, count, percentage, isNew }) => {
+                    const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
+                    const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
 
-              const toPoints = (items: typeof recent10) =>
-                items.map((item, idx) => {
-                  const x =
-                    items.length === 1
-                      ? 50
-                      : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
-                  const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
-                  return { x, y, value: item.alignment };
+                    return (
+                      <div
+                        key={speaker}
+                        className="speaker-card"
+                        style={{
+                          marginBottom: '12px',
+                          animation: isNew ? 'mpFadeSlide 0.4s ease' : undefined
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
+                              {displayName}
+                            </span>
+                            <input
+                              type="text"
+                              placeholder="名前を入力"
+                              value={speakerNames[speaker] || ''}
+                              onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
+                              style={{
+                                width: '120px',
+                                padding: '4px 8px',
+                                fontSize: '0.8em',
+                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                                border: '1px solid #00ffff',
+                                borderRadius: '4px',
+                                color: '#00ffff'
+                              }}
+                            />
+                          </div>
+                          <span style={{ color: barColor, fontSize: '0.9em', fontWeight: 'bold' }}>{percentage}%</span>
+                        </div>
+                        <div
+                          style={{
+                            width: '100%',
+                            height: '8px',
+                            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                            borderRadius: '4px',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <div
+                            className="speaker-bar"
+                            style={{
+                              width: `${percentage}%`,
+                              height: '100%',
+                              backgroundColor: barColor
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {realtimeClassifications.length > 0 && (() => {
+                // コメント（短い発言）を除外
+                const validItems = realtimeClassifications.filter(item => item.text.length >= 10);
+                if (validItems.length === 0) return null;
+
+                const recent10 = validItems.slice(-10);
+                // 直近5件に重み3、それ以前に重み1の加重平均
+                const weightsForRecent = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+                const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
+                const avgAlignment = recent10.length
+                  ? Math.round(
+                    recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+                  )
+                  : 0;
+
+                const padding = 8; // 両端が見切れないように少し余白
+
+                const barWidth = recent10.length ? (100 - padding * 2) / recent10.length : 0;
+                const bars = recent10.map((item, idx) => {
+                  const x = padding + idx * barWidth + barWidth * 0.1;
+                  const height = Math.max(0, Math.min(100, item.alignment));
+                  const y = 100 - height;
+                  return { x, y, height, value: item.alignment };
                 });
 
-              const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
-                if (pts.length === 0) return '';
-                if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-                let d = `M ${pts[0].x},${pts[0].y}`;
-                for (let i = 1; i < pts.length; i++) {
-                  const prev = pts[i - 1];
-                  const curr = pts[i];
-                  const mx = (prev.x + curr.x) / 2;
-                  const my = (prev.y + curr.y) / 2;
-                  d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
-                }
-                d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
-                return d;
-              };
+                const toPoints = (items: typeof recent10) =>
+                  items.map((item, idx) => {
+                    const x =
+                      items.length === 1
+                        ? 50
+                        : padding + ((idx / (items.length - 1)) * (100 - padding * 2));
+                    const y = Math.min(100 - padding, Math.max(padding, 100 - item.alignment));
+                    return { x, y, value: item.alignment };
+                  });
 
-              const weightedAvgPoints = (() => {
-                const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
-                const cumulativeWeights: number[] = [];
-                let sumW = 0;
-                weights.forEach((w) => {
-                  sumW += w;
-                  cumulativeWeights.push(sumW);
-                });
-                let cum = 0;
-                return recent10.map((item, idx) => {
-                  cum += item.alignment * weights[idx];
-                  const avg = cum / (cumulativeWeights[idx] || 1);
-                  return { alignment: avg };
-                });
-              })();
+                const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
+                  if (pts.length === 0) return '';
+                  if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+                  let d = `M ${pts[0].x},${pts[0].y}`;
+                  for (let i = 1; i < pts.length; i++) {
+                    const prev = pts[i - 1];
+                    const curr = pts[i];
+                    const mx = (prev.x + curr.x) / 2;
+                    const my = (prev.y + curr.y) / 2;
+                    d += ` Q ${prev.x},${prev.y} ${mx},${my}`;
+                  }
+                  d += ` T ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`;
+                  return d;
+                };
 
-              const pointsWeighted = toPoints(
-                weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
-              );
-              const pathDWeighted = buildSmoothPath(pointsWeighted);
+                const weightedAvgPoints = (() => {
+                  const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+                  const cumulativeWeights: number[] = [];
+                  let sumW = 0;
+                  weights.forEach((w) => {
+                    sumW += w;
+                    cumulativeWeights.push(sumW);
+                  });
+                  let cum = 0;
+                  return recent10.map((item, idx) => {
+                    cum += item.alignment * weights[idx];
+                    const avg = cum / (cumulativeWeights[idx] || 1);
+                    return { alignment: avg };
+                  });
+                })();
 
-              return (
-                <section className="panel">
-                  <div className="panel-header">
-                    <h2>会議治安指数</h2>
-                  </div>
+                const pointsWeighted = toPoints(
+                  weightedAvgPoints.map((p) => ({ ...p, text: '', speaker: '' })) as any
+                );
+                const pathDWeighted = buildSmoothPath(pointsWeighted);
+
+                return (
                   <div
                     className="alignment-card"
                     style={{
@@ -475,24 +549,23 @@ export function SessionPage() {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                       <div>
+                        <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', color: '#00ffff' }}>
+                          会議治安指数
+                        </p>
                         <div
                           style={{
-                            fontSize: '3.5em',
+                            fontSize: '2.6em',
                             fontWeight: 'bold',
                             color: avgAlignment >= 60 ? '#4caf50' : avgAlignment >= 40 ? '#ff9800' : '#f44336',
                             lineHeight: '1',
-                            textShadow: '0 0 12px rgba(0,255,255,0.6)',
-                            marginBottom: '10px'
+                            textShadow: '0 0 12px rgba(0,255,255,0.6)'
                           }}
                         >
                           {avgAlignment}%
                         </div>
-                        <p style={{ margin: 0, fontSize: '1.1em', color: '#00ffff' }}>
-                          {avgAlignment >= 60 ? '良好' : avgAlignment >= 40 ? '注意' : '警告'}
-                        </p>
                       </div>
                       <div style={{ flex: 1.4 }}>
-                        <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ height: '120px' }}>
+                        <svg className="alignment-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
                           <defs>
                             <linearGradient id="alignStroke" x1="0%" y1="0%" x2="100%" y2="0%">
                               <stop offset="0%" stopColor="#00ffff" stopOpacity="0.9" />
@@ -567,127 +640,26 @@ export function SessionPage() {
                       </div>
                     </div>
                   </div>
-                </section>
-              );
-            })()}
+                );
+              })()}
 
-            {/* 話者別発言割合 */}
-            {speakerStats.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <h2>話者別発言割合</h2>
-                </div>
-                <div
-                  style={{
-                    padding: '15px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    borderRadius: '8px',
-                    border: '2px solid #00ffff'
-                  }}
-                >
-                  {speakerStats.map(({ speaker, count, percentage, isNew }) => {
-                    const displayName = speakerNames[speaker] ? `${speakerNames[speaker]}さん` : speaker;
-                    const barColor = percentage >= 85 ? '#ff4444' : percentage >= 70 ? '#ffaa00' : '#00ff00';
-
-                    return (
-                      <div
-                        key={speaker}
-                        className="speaker-card"
-                        style={{
-                          marginBottom: '12px',
-                          animation: isNew ? 'mpFadeSlide 0.4s ease' : undefined
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ color: '#00ffff', fontSize: '0.9em' }}>
-                              {displayName}
-                            </span>
-                            <input
-                              type="text"
-                              placeholder="名前を入力"
-                              value={speakerNames[speaker] || ''}
-                              onChange={(e) => setSpeakerNames({ ...speakerNames, [speaker]: e.target.value })}
-                              style={{
-                                width: '120px',
-                                padding: '4px 8px',
-                                fontSize: '0.8em',
-                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                                border: '1px solid #00ffff',
-                                borderRadius: '4px',
-                                color: '#00ffff'
-                              }}
-                            />
-                          </div>
-                          <span style={{ color: barColor, fontSize: '0.9em', fontWeight: 'bold' }}>{percentage}%</span>
-                        </div>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: '8px',
-                            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                            borderRadius: '4px',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          <div
-                            className="speaker-bar"
-                            style={{
-                              width: `${percentage}%`,
-                              height: '100%',
-                              backgroundColor: barColor
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-          </div>
-
-          <div className="poc-right">
-            {/* リアルタイム分析結果 */}
-            <section className="panel">
-              <div className="panel-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'nowrap' }}>
-                  <p className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>🔍 リアルタイム分析</p>
-                  <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>{realtimeClassifications.length} 件</h2>
-                </div>
-              </div>
-
-              <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+              <div className="transcript-feed" style={{ maxHeight: '500px', overflowY: 'auto' }}>
                 {realtimeClassifications
-                  .filter(item => item.text.length >= 1) // 即座表示のため閾値を最小に
-                  .slice() // 時系列順（最新が下）
+                  .filter(item => item.text.length >= 10)
                   .map((item, index) => {
                     const isFinal = item.is_final === true;
-                    const isPartial = item.is_partial === true;
-                    const icon = isFinal ? '✅' : isPartial ? '⏳' : '📊';
+                    const icon = isFinal ? '✅' : '📊';
                     const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
-                    
-                    // AI分析状態の表示
-                    let aiStatus = null;
-                    const statusText = item.ai_status || (isPartial ? "部分" : "AI暫定");
-                    
-                    if (statusText === "AI確定") {
-                      aiStatus = <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>;
-                    } else if (statusText === "AI暫定") {
-                      aiStatus = <span className="pill" style={{ backgroundColor: '#ff9800', color: 'white' }}>AI暫定</span>;
-                    } else if (statusText === "部分") {
-                      aiStatus = <span className="pill" style={{ backgroundColor: '#9e9e9e', color: 'white' }}>部分</span>;
-                    }
 
                     return (
-                      <article key={`${item.index}-${index}`} className="transcript-item" style={{ opacity: isPartial ? 0.7 : 1 }}>
+                      <article key={index} className="transcript-item">
                         <header>
                           <strong>{displaySpeaker(item.speaker)}</strong>
                           <span className="pill">{item.category}</span>
                           <span className="pill" style={{ backgroundColor: bgColor }}>
                             {icon} {item.alignment}%
                           </span>
-                          {aiStatus}
+                          {isFinal && <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>}
                         </header>
                         <p>{item.text}</p>
                       </article>

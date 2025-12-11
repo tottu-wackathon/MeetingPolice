@@ -5,7 +5,6 @@ from contextlib import suppress
 import queue
 import threading
 import logging
-import time
 from typing import Any
 
 from fastapi import WebSocket
@@ -132,7 +131,7 @@ class SessionController:
             audio_queue = queue.Queue()
             
             def on_transcript_result(result):
-                """Callback for transcription results with simple utterance tracking."""
+                """Callback for transcription results with utterance tracking."""
                 try:
                     transcript = result.get("transcript", "").strip()
                     if not transcript:
@@ -140,54 +139,54 @@ class SessionController:
                         
                     is_partial = result.get("is_partial", False)
                     
-                    # Simple utterance tracking based on partial/final status
+                    # Track ongoing utterance with consistent result_id
                     if not hasattr(session_data, 'current_utterance_id'):
                         session_data['current_utterance_id'] = None
+                        session_data['last_partial_text'] = ""
                     
-                    # Debug: Log the raw result structure
-                    self.logger.info(f"Raw transcribe result: {result}")
-                    
-                    # Use result_id from the transcription service if available
-                    aws_result_id = result.get("result_id") or result.get("ResultId")
-                    
-                    if aws_result_id:
-                        result_id = f"aws_{aws_result_id}"
-                        self.logger.info(f"Using AWS result_id: {aws_result_id}")
-                    else:
-                        # Simple fallback: one utterance ID until final result
-                        if is_partial:
-                            # For partial results, maintain current utterance ID
-                            if session_data.get('current_utterance_id') is None:
-                                session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
-                                self.logger.info(f"Created new utterance ID: {session_data['current_utterance_id']}")
-                            result_id = session_data['current_utterance_id']
-                            self.logger.info(f"Using existing utterance ID: {result_id}")
+                    # Determine if this is a new utterance or continuation
+                    if is_partial:
+                        # For partial results, check if this is continuation of previous utterance
+                        last_text = session_data['last_partial_text']
+                        is_continuation = False
+                        
+                        if last_text and len(last_text) > 0:
+                            # Check if current text is an extension of previous text
+                            # More lenient matching for Japanese text
+                            if len(transcript) >= len(last_text):
+                                # New text is longer - likely continuation
+                                is_continuation = True
+                            elif len(transcript) >= len(last_text) * 0.8:
+                                # Similar length - check for common content
+                                common_chars = sum(1 for a, b in zip(last_text, transcript) if a == b)
+                                if common_chars >= len(last_text) * 0.6:
+                                    is_continuation = True
+                        
+                        if session_data['current_utterance_id'] is None or not is_continuation:
+                            # New utterance started
+                            session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
+                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']} (text: '{transcript}')")
                         else:
-                            # For final results, use current ID and reset
-                            if session_data.get('current_utterance_id') is not None:
-                                result_id = session_data['current_utterance_id']
-                                session_data['current_utterance_id'] = None  # Reset for next utterance
-                                self.logger.info(f"Final result, using and resetting ID: {result_id}")
-                            else:
-                                result_id = f"session_{session_data['next_entry_index']}"
-                                self.logger.info(f"No current ID, creating new: {result_id}")
+                            self.logger.info(f"Continuing utterance: {session_data['current_utterance_id']} (text: '{transcript}')")
+                        
+                        session_data['last_partial_text'] = transcript
+                        result_id = session_data['current_utterance_id']
+                    else:
+                        # Final result - use current utterance ID if available
+                        if session_data['current_utterance_id'] is not None:
+                            result_id = session_data['current_utterance_id']
+                        else:
+                            result_id = f"session_{session_data['next_entry_index']}"
+                        
+                        # Reset for next utterance
+                        session_data['current_utterance_id'] = None
+                        session_data['last_partial_text'] = ""
                     
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
-                    # Extract speaker information from transcribe result
-                    raw_speaker = result.get("speaker_label")
-                    if not raw_speaker:
-                        raw_speaker = "spk_unk"  # Unknown speaker
-                        self.logger.debug(f"No speaker label in result, using spk_unk")
-                    else:
-                        self.logger.debug(f"Raw speaker label from Transcribe: {raw_speaker}")
-                    
-                    speaker_label = self._speaker_name(session_data, raw_speaker)
-                    self.logger.info(f"Speaker mapping: {raw_speaker} -> {speaker_label}")
-                    
-                    # Integrated transcription and analysis handling
-                    asyncio.create_task(self._handle_integrated_result(
-                        session_data, result_id, speaker_label, raw_speaker, transcript, is_partial, websocket
+                    # Use the improved result handling
+                    asyncio.create_task(self._handle_result_streaming(
+                        session_data, result_id, "Speaker 1", "spk_1", transcript, not is_partial, websocket
                     ))
                         
                 except Exception as e:
@@ -313,141 +312,51 @@ class SessionController:
         return key_str or "spk_unk"
 
     def _speaker_name(self, session_data: dict, raw_label: str | None) -> str:
-        """Get friendly speaker name with dynamic mapping like poc_satomin."""
+        """Get friendly speaker name."""
         key = self._normalize_raw_label(raw_label)
-        
-        # Initialize speaker management if not exists
-        if "speaker_labels" not in session_data:
-            session_data["speaker_labels"] = {}
-            session_data["next_speaker_index"] = 1
-        
-        # Handle unknown/unidentified speakers
-        if key == "spk_unk" or not key:
-            return "Speaker 0"  # Default for unidentified speakers
-        
-        # Check if this speaker label has been seen before
-        if key in session_data["speaker_labels"]:
-            # Known speaker - return existing mapping
-            existing_label = session_data["speaker_labels"][key]
-            self.logger.info(f"Known speaker: {key} -> {existing_label}")
-            return existing_label
-        else:
-            # New speaker - assign next available Speaker number
-            new_label = f"Speaker {session_data['next_speaker_index']}"
-            session_data["speaker_labels"][key] = new_label
+        if key == "spk_unk":
+            session_data["speaker_labels"].setdefault("spk_unk", "判別中...")
+            return session_data["speaker_labels"]["spk_unk"]
+            
+        if key not in session_data["speaker_labels"]:
+            label = f"Speaker {session_data['next_speaker_index']}"
+            session_data["speaker_labels"][key] = label
             session_data["next_speaker_index"] += 1
-            self.logger.info(f"New speaker detected: {key} -> {new_label}")
-            return new_label
-
-    async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool, websocket: WebSocket) -> None:
-        """Handle transcription result with integrated real-time analysis."""
-        is_final = not is_partial
-        
-        # Handle transcription first
-        await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final, websocket)
-        
-        # Manage current utterance state
-        if not hasattr(session_data, 'current_analysis_entry'):
-            session_data['current_analysis_entry'] = None
-            session_data['current_analysis_speaker'] = None
-            session_data['current_analysis_index'] = 1
-        
-        # Check if this is a new speaker or continuation (strict speaker-label based)
-        current_speaker = session_data.get('current_analysis_speaker')
-        current_raw_speaker = session_data.get('current_analysis_raw_speaker')
-        is_new_speaker = (current_speaker is not None and current_speaker != speaker_label)
-        
-        self.logger.info(f"Speaker analysis: current='{current_speaker}' (raw: {current_raw_speaker}), new='{speaker_label}' (raw: {raw_label}), is_new={is_new_speaker}, is_partial={is_partial}")
-        
-        # Create new entry only when:
-        # 1. First utterance (no current entry)
-        # 2. Speaker actually changed (different label)
-        if session_data['current_analysis_entry'] is None or is_new_speaker:
-            # New speaker or first utterance - create new analysis entry
-            session_data['current_analysis_index'] += 1
-            session_data['current_analysis_speaker'] = speaker_label
-            session_data['current_analysis_raw_speaker'] = raw_label
-            session_data['current_analysis_entry'] = {
-                "index": session_data['current_analysis_index'],
-                "speaker": speaker_label,
-                "raw_speaker": raw_label,
-                "text": text,
-                "ai_status": "AI暫定"
-            }
             
-            self.logger.info(f"Created new analysis entry: {speaker_label} (raw: {raw_label}) - '{text[:50]}...'")
-            
-            # Send new analysis entry
-            await self._send_analysis_update(websocket, session_data, is_partial)
-            
-        else:
-            # Same speaker - update existing entry
-            old_text = session_data['current_analysis_entry']['text']
-            session_data['current_analysis_entry']['text'] = text
-            
-            self.logger.debug(f"Updated existing entry: {speaker_label} - '{old_text[:30]}...' -> '{text[:30]}...'")
-            
-            # Send update for existing entry
-            await self._send_analysis_update(websocket, session_data, is_partial)
-        
-        # Trigger Bedrock analysis when speaker changes (not just when final)
-        if is_new_speaker and session_data['current_analysis_entry']:
-            # Previous speaker finished - finalize their analysis
-            asyncio.create_task(self._finalize_analysis_with_bedrock(
-                session_data, websocket
-            ))
+        return session_data["speaker_labels"][key]
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
-        """Handle a single transcription result with duplicate prevention."""
-        
-        # Check for duplicate text in recent transcripts to prevent multiple entries
-        recent_transcripts = session_data["transcripts"][-3:] if session_data["transcripts"] else []
-        for recent in recent_transcripts:
-            if (recent.get("text") == text and 
-                recent.get("speaker") == speaker_label and
-                len(text) > 10):  # Only check for substantial text
-                self.logger.info(f"Duplicate text detected, skipping: '{text}'")
-                return
-        
+        """Handle a single transcription result with continuous speaker consolidation."""
         entry = session_data["pending_results"].get(result_id)
         
         if not entry:
-            # Check if we should update the last transcript instead of creating new
+            # Check if we should append to the last transcript instead of creating new entry
             last_transcript = session_data["transcripts"][-1] if session_data["transcripts"] else None
-            
-            # If the last transcript has very similar text and same speaker, update it instead
-            if (last_transcript and 
+            should_append_to_last = (
+                last_transcript and 
                 last_transcript.get("speaker") == speaker_label and
-                len(text) > 5 and len(last_transcript.get("text", "")) > 5):
-                
-                last_text = last_transcript.get("text", "")
-                # Check if new text is an extension of the last text
-                if (text.startswith(last_text[:len(last_text)//2]) or 
-                    last_text.startswith(text[:len(text)//2]) or
-                    len(text) > len(last_text)):  # New text is longer
-                    
-                    # Update the existing transcript
-                    last_transcript["text"] = text
-                    last_transcript["timestamp"] = now_iso()
-                    last_transcript["result_id"] = result_id
-                    
-                    # Send update
-                    await websocket.send_json({
-                        "type": "transcript",
-                        "action": "update",
-                        "payload": last_transcript
-                    })
-                    
-                    # Store in pending_results for further updates
-                    session_data["pending_results"][result_id] = last_transcript.copy()
-                    self.logger.info(f"Updated last transcript: '{text}' (result_id: {result_id})")
-                    
-                    if is_final:
-                        await self._finalize_result_streaming(session_data, result_id, websocket)
-                        await self._classify_and_send_realtime(websocket, session_data["meeting_id"], text, speaker_label, last_transcript["index"])
-                    return
+                speaker_label not in ["判別中...", "発話中..."] and  # Don't merge unknown speakers
+                not is_final  # Only append partial results to avoid mixing final results
+            )
             
-            # Create new entry
+            if should_append_to_last:
+                # Update the last transcript entry instead of creating new one
+                last_transcript["text"] = text
+                last_transcript["timestamp"] = now_iso()
+                
+                # Send update for the existing entry
+                await websocket.send_json({
+                    "type": "transcript",
+                    "action": "update",
+                    "payload": last_transcript
+                })
+                
+                # Store in pending_results for further updates
+                session_data["pending_results"][result_id] = last_transcript.copy()
+                self.logger.info(f"Appended to last transcript: '{text}' (speaker: {speaker_label})")
+                return
+            
+            # New entry - append
             entry = {
                 "index": session_data["next_entry_index"],
                 "speaker": speaker_label,
@@ -467,7 +376,7 @@ class SessionController:
                 "payload": self._public_payload(entry)
             })
         else:
-            # Update existing entry with same result_id
+            # Update existing entry
             # Update speaker if we got better information
             current_raw = entry.get("raw_speaker", "spk_unk")
             if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
@@ -481,7 +390,7 @@ class SessionController:
                     "payload": self._public_payload(entry)
                 })
 
-            # Check if text and speaker are the same (early return)
+            # Check if text and speaker are the same (early return like poc_satomin)
             if entry["text"] == text and entry["speaker"] == speaker_label:
                 if is_final:
                     await self._finalize_result_streaming(session_data, result_id, websocket)
@@ -549,11 +458,11 @@ class SessionController:
         
         return session_data["speaker_labels"][raw_label]
 
-    async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool = False) -> None:
-        """Perform ultra-fast real-time classification."""
-        # Skip very short texts
+    async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
+        """Perform real-time classification like poc_satomin."""
+        # Skip short texts
         text_stripped = text.strip()
-        if len(text_stripped) < 3:
+        if len(text_stripped) < 10:
             return
             
         session_data = self.session_data.get(meeting_id)
@@ -563,10 +472,10 @@ class SessionController:
         # Skip meta information
         if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
             return
-        
-        # Ultra-fast keyword-based classification (no complex processing)
-        category_quick = self._fast_guess_category(text)
-        alignment_quick = self._fast_calculate_alignment(text, session_data["agenda_text"])
+            
+        # Step 1: Quick keyword-based classification
+        category_quick = _guess_category(text)
+        alignment_quick = self._calculate_alignment(text, session_data["agenda_text"])
         
         result_quick = {
             "index": index,
@@ -575,24 +484,19 @@ class SessionController:
             "category": category_quick,
             "alignment": alignment_quick,
             "method": "keyword",
-            "is_final": not is_partial,
-            "is_partial": is_partial
+            "is_final": False
         }
-
-        # Send result immediately without any delay
-        try:
-            await websocket.send_json({
-                "type": "realtime_classification",
-                "payload": result_quick
-            })
-        except Exception as e:
-            self.logger.error(f"Failed to send realtime classification: {e}")
         
-        # Step 2: Background Bedrock analysis (only for final results with substantial text)
-        if not is_partial and len(text_stripped) >= 15:
-            task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
-            session_data["pending_bedrock_tasks"].add(task)
-            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+        # Send quick result
+        await websocket.send_json({
+            "type": "realtime_classification",
+            "payload": result_quick
+        })
+        
+        # Step 2: Background Bedrock analysis
+        task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
+        session_data["pending_bedrock_tasks"].add(task)
+        task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
 
     async def _classify_with_bedrock(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
         """Bedrock classification in background."""
@@ -633,8 +537,7 @@ class SessionController:
                     "category": category_ai,
                     "alignment": alignment_ai,
                     "method": "bedrock",
-                    "is_final": True,
-                    "is_partial": False
+                    "is_final": True
                 }
                 
                 # Send AI result
@@ -657,8 +560,7 @@ class SessionController:
                     "category": category_fallback,
                     "alignment": alignment_fallback,
                     "method": "keyword",
-                    "is_final": True,
-                    "is_partial": False
+                    "is_final": True
                 }
                 
                 await websocket.send_json({
@@ -669,282 +571,6 @@ class SessionController:
         
         except Exception as e:
             self.logger.error(f"Bedrock分析失敗: {e}")
-
-    def _fast_guess_category(self, text: str) -> str:
-        """Ultra-fast category guessing with minimal processing."""
-        text_lower = text.lower()
-        
-        # Simple keyword matching
-        if any(word in text_lower for word in ["提案", "案", "アイデア", "考え"]):
-            return "提案"
-        elif any(word in text_lower for word in ["質問", "？", "?"]):
-            return "質問"
-        elif any(word in text_lower for word in ["反対", "問題", "課題", "懸念"]):
-            return "反対"
-        elif any(word in text_lower for word in ["賛成", "同意", "いいね", "良い"]):
-            return "賛成"
-        else:
-            return "コメント"
-    
-    async def _send_analysis_update(self, websocket: WebSocket, session_data: dict, is_partial: bool) -> None:
-        """Send analysis update for current utterance."""
-        if not session_data.get('current_analysis_entry'):
-            return
-        
-        entry = session_data['current_analysis_entry']
-        text = entry['text']
-        speaker = entry['speaker']
-        index = entry['index']
-        
-        # Skip meta information
-        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
-            return
-        
-        # Fast analysis
-        category = self._fast_guess_category(text)
-        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
-        
-        result = {
-            "index": index,
-            "text": text,
-            "speaker": speaker,
-            "category": category,
-            "alignment": alignment,
-            "method": "keyword",
-            "is_final": not is_partial,
-            "is_partial": is_partial,
-            "ai_status": entry['ai_status'],
-            "result_id": f"utterance_{index}"
-        }
-
-        try:
-            await websocket.send_json({
-                "type": "realtime_classification",
-                "payload": result
-            })
-        except Exception as e:
-            self.logger.error(f"Failed to send analysis update: {e}")
-
-    async def _finalize_analysis_with_bedrock(self, session_data: dict, websocket: WebSocket) -> None:
-        """Finalize current analysis with Bedrock and mark as AI確定."""
-        if not session_data.get('current_analysis_entry'):
-            return
-        
-        entry = session_data['current_analysis_entry']
-        text = entry['text']
-        speaker = entry['speaker']
-        index = entry['index']
-        
-        try:
-            # Bedrock analysis
-            segment = {
-                "index": index,
-                "speaker": speaker,
-                "text": text,
-                "context_before": "",
-                "context_after": "",
-            }
-            
-            classified = await asyncio.to_thread(
-                classify_transcript_segments,
-                [segment],
-                session_data["agenda_text"]
-            )
-            
-            if classified and len(classified) > 0:
-                result = classified[0]
-                category_ai = result.get("category", self._fast_guess_category(text))
-                alignment_ai = result.get("alignment", 0)
-            else:
-                category_ai = self._fast_guess_category(text)
-                alignment_ai = self._fast_calculate_alignment(text, session_data["agenda_text"])
-            
-            # Send final AI確定 result
-            final_result = {
-                "index": index,
-                "text": text,
-                "speaker": speaker,
-                "category": category_ai,
-                "alignment": alignment_ai,
-                "method": "bedrock",
-                "is_final": True,
-                "is_partial": False,
-                "ai_status": "AI確定",
-                "result_id": f"utterance_{index}"
-            }
-            
-            await websocket.send_json({
-                "type": "realtime_classification",
-                "payload": final_result
-            })
-            
-            self.logger.info(f"Analysis finalized: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}% (AI確定)")
-            
-        except Exception as e:
-            self.logger.error(f"Bedrock finalization failed: {e}")
-
-    async def _send_integrated_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool, ai_status: str) -> None:
-        """Send integrated analysis with consistent indexing."""
-        session_data = self.session_data.get(meeting_id)
-        if not session_data:
-            return
-        
-        # Skip meta information
-        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
-            return
-        
-        # Ultra-fast analysis
-        category = self._fast_guess_category(text)
-        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
-        
-        result = {
-            "index": index,
-            "text": text,
-            "speaker": speaker,
-            "category": category,
-            "alignment": alignment,
-            "method": "keyword",
-            "is_final": not is_partial,
-            "is_partial": is_partial,
-            "ai_status": ai_status,
-            "result_id": f"analysis_{index}"  # Consistent result_id for frontend
-        }
-
-        try:
-            await websocket.send_json({
-                "type": "realtime_classification",
-                "payload": result
-            })
-        except Exception as e:
-            self.logger.error(f"Failed to send integrated analysis: {e}")
-
-    async def _send_immediate_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool) -> None:
-        """Send immediate keyword-based analysis."""
-        session_data = self.session_data.get(meeting_id)
-        if not session_data:
-            return
-        
-        # Skip meta information
-        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
-            return
-        
-        # Ultra-fast analysis
-        category = self._fast_guess_category(text)
-        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
-        
-        result = {
-            "index": index,
-            "text": text,
-            "speaker": speaker,
-            "category": category,
-            "alignment": alignment,
-            "method": "keyword",
-            "is_final": not is_partial,
-            "is_partial": is_partial,
-            "ai_status": "AI暫定" if not is_partial else "部分"
-        }
-
-        try:
-            await websocket.send_json({
-                "type": "realtime_classification",
-                "payload": result
-            })
-        except Exception as e:
-            self.logger.error(f"Failed to send immediate analysis: {e}")
-
-    def _is_sentence_complete(self, text: str) -> bool:
-        """Check if sentence is complete (ends with punctuation)."""
-        text = text.strip()
-        if len(text) < 5:
-            return False
-        
-        # Japanese sentence endings
-        sentence_endings = ["。", "！", "？", ".", "!", "?"]
-        return any(text.endswith(ending) for ending in sentence_endings)
-
-    async def _classify_with_bedrock_integrated(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket, reason: str) -> None:
-        """Bedrock analysis with integrated status management."""
-        try:
-            self.logger.info(f"Bedrock分析開始 ({reason}): {speaker} - {text[:30]}...")
-            
-            # Get context
-            context_before = ""
-            context_after = ""
-            for transcript in session_data["transcripts"][-5:]:  # Last 5 for context
-                if transcript.get("index") == index - 1:
-                    context_before = transcript.get("text", "")
-                elif transcript.get("index") == index + 1:
-                    context_after = transcript.get("text", "")
-            
-            # Bedrock analysis
-            segment = {
-                "index": index,
-                "speaker": speaker,
-                "text": text,
-                "context_before": context_before,
-                "context_after": context_after,
-            }
-            
-            classified = await asyncio.to_thread(
-                classify_transcript_segments,
-                [segment],
-                session_data["agenda_text"]
-            )
-            
-            if classified and len(classified) > 0:
-                result = classified[0]
-                category_ai = result.get("category", self._fast_guess_category(text))
-                alignment_ai = result.get("alignment", 0)
-                
-                # Determine AI status based on reason
-                ai_status = "AI確定" if reason == "speaker_change" else "AI暫定"
-                
-                result_ai = {
-                    "index": index,
-                    "text": text,
-                    "speaker": speaker,
-                    "category": category_ai,
-                    "alignment": alignment_ai,
-                    "method": "bedrock",
-                    "is_final": reason == "speaker_change",
-                    "is_partial": False,
-                    "ai_status": "AI確定",  # Bedrock analysis always results in AI確定
-                    "result_id": f"analysis_{index}"  # Consistent result_id
-                }
-                
-                # Send AI result
-                await websocket.send_json({
-                    "type": "realtime_classification",
-                    "action": "update",
-                    "payload": result_ai
-                })
-                
-                self.logger.info(f"Bedrock分析完了 ({reason}): {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}% ({ai_status})")
-            
-        except Exception as e:
-            self.logger.error(f"Bedrock分析失敗 ({reason}): {e}")
-
-    def _fast_calculate_alignment(self, text: str, agenda_text: str) -> int:
-        """Ultra-fast alignment calculation."""
-        if not agenda_text or len(text) < 5:
-            return 50
-        
-        # Simple word matching
-        agenda_words = set(agenda_text.lower().split())
-        text_words = set(text.lower().split())
-        
-        if not agenda_words:
-            return 50
-        
-        # Calculate simple overlap
-        overlap = len(agenda_words & text_words)
-        total = len(agenda_words)
-        
-        if overlap == 0:
-            return 30
-        
-        alignment = min(100, int(30 + (overlap / total) * 70))
-        return alignment
 
     def _calculate_alignment(self, text: str, agenda_text: str) -> int:
         """Calculate alignment with agenda."""
