@@ -18,6 +18,9 @@ class AnalysisHandler:
     
     def __init__(self):
         self.logger = logger
+        # PoliceDispatchManagerのインスタンスを保持
+        from backend.session.police_dispatch import PoliceDispatchManager
+        self.police_dispatch = PoliceDispatchManager()
     
     async def classify_and_send_realtime(
         self, 
@@ -144,10 +147,7 @@ class AnalysisHandler:
                 self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
                 
                 # 警察出動チェック（Bedrockで確定した結果のみ）
-                # police_dispatchは別途インポートして使用
-                from backend.session.police_dispatch import PoliceDispatchManager
-                police_dispatch = PoliceDispatchManager()
-                await police_dispatch.check_and_trigger(
+                await self.police_dispatch.check_and_trigger(
                     session_data, alignment_ai, text, speaker, category_ai
                 )
             else:
@@ -170,9 +170,7 @@ class AnalysisHandler:
                 self.logger.info(f"✅ キーワード分析確定: {speaker} - {text[:30]}... → [{category_fallback}] {alignment_fallback}%")
                 
                 # 警察出動チェック（フォールバック結果）
-                from backend.session.police_dispatch import PoliceDispatchManager
-                police_dispatch = PoliceDispatchManager()
-                await police_dispatch.check_and_trigger(
+                await self.police_dispatch.check_and_trigger(
                     session_data, alignment_fallback, text, speaker, category_fallback
                 )
         

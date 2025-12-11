@@ -52,11 +52,32 @@ class PoliceDispatchManager:
                 session_data['police_dispatch_state'] = {
                     'is_active': False,
                     'last_triggered_time': None,
-                    'low_alignment_start_time': None
+                    'low_alignment_start_time': None,
+                    'recent_checks': {}  # 最近のチェック記録
                 }
             
             state = session_data['police_dispatch_state']
             current_time = time.time()
+            
+            # 短時間での同じテキストの重複処理を防止（より緩い制限）
+            text_key = f"{text.strip()}_{alignment_score}"  # テキスト+一致度で識別
+            current_minute = int(current_time / 60)  # 分単位でグループ化
+            
+            if 'recent_checks' not in state:
+                state['recent_checks'] = {}
+            
+            # 同じ分内での同じテキスト+一致度の組み合わせをチェック
+            minute_key = f"{current_minute}_{text_key}"
+            if minute_key in state['recent_checks']:
+                self.logger.debug(f"🔍 Recent duplicate check, skipping: '{text[:30]}...' (alignment: {alignment_score}%)")
+                return
+            
+            state['recent_checks'][minute_key] = current_time
+            
+            # 古いチェック記録をクリーンアップ（2分以上前のものを削除）
+            cleanup_keys = [k for k, t in state['recent_checks'].items() if current_time - t > 120]
+            for k in cleanup_keys:
+                del state['recent_checks'][k]
             
             self.logger.info(f"🚨 Police dispatch check: alignment={alignment_score}%, speaker={speaker}, text='{text[:50]}...'")
             

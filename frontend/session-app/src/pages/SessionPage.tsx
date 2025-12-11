@@ -40,6 +40,9 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final } = payload;
       
       setRealtimeClassifications((prev) => {
+        // デバッグ用ログ
+        console.log('[SessionPage] Realtime classification received:', { index, text: text?.slice(0, 30), speaker, category, alignment, method, is_final });
+        
         // 同じindexとtextの組み合わせで既存エントリを検索（methodに関係なく）
         const existingIndex = prev.findIndex((item) => 
           item.index === index && item.text === text
@@ -54,13 +57,16 @@ export function SessionPage() {
           // キーワード結果の場合は、既存がBedrock結果でなければ更新
           if (is_final || !existing.is_final) {
             updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
+            console.log('[SessionPage] Updated existing entry at index', existingIndex);
           }
           
           return updated;
         }
         
         // 新しいエントリを追加
-        return [...prev, { index, text, speaker, category, alignment, method, is_final }];
+        const newEntry = { index, text, speaker, category, alignment, method, is_final };
+        console.log('[SessionPage] Added new entry:', newEntry);
+        return [...prev, newEntry];
       });
     },
     isMuted // ミュート状態を渡す
@@ -78,6 +84,12 @@ export function SessionPage() {
       }));
     }
   }, [transcripts]);
+  
+  // 🔍 REALTIME CLASSIFICATIONS MONITORING
+  useEffect(() => {
+    console.log('[SessionPage] Realtime classifications updated:', realtimeClassifications.length, 'items');
+    console.log('[SessionPage] Valid items (length >= 10):', realtimeClassifications.filter(item => item.text && item.text.length >= 10).length);
+  }, [realtimeClassifications]);
   
   // 🔍 HEALTH CHECK: Detect if transcription stopped
   useEffect(() => {
@@ -363,6 +375,15 @@ export function SessionPage() {
     const avgAlignment = Math.round(
       recentItems.reduce((sum, item) => sum + item.alignment, 0) / recentItems.length
     );
+    
+    // デバッグ用ログ
+    console.log('[SessionPage] Warning check:', {
+      validItemsCount: validItems.length,
+      recentItemsCount: recentItems.length,
+      avgAlignment,
+      showWarning,
+      showPoliceWarning
+    });
 
     const now = Date.now();
 
@@ -391,8 +412,17 @@ export function SessionPage() {
         setShowPoliceWarning(false);
       }
     } else if (avgAlignment <= 50) {
-      setShowWarning(true);
-      setShowPoliceWarning(false);
+      // 警察出動後5秒以内の場合は警察出動警告を継続
+      const timeSincePoliceWarning = policeWarningShownAt ? (now - policeWarningShownAt) : Infinity;
+      
+      if (timeSincePoliceWarning <= 5000 && showPoliceWarning) {
+        // 警察出動警告を継続（何もしない）
+        console.log('[SessionPage] Keeping police warning active (within 5s grace period)');
+      } else {
+        // 5秒経過後または警察出動警告が非アクティブの場合は一致度低下警告に切り替え
+        setShowWarning(true);
+        setShowPoliceWarning(false);
+      }
       setLowAlignmentStartTime(null);
     } else {
       setShowWarning(false);
@@ -621,19 +651,9 @@ export function SessionPage() {
           </div>
           <div className="analysis-feed">
             {realtimeClassifications
-              .filter(item => item.text.length >= 10)
-              // 同じテキストの重複を除去（最新のエントリのみ保持）
-              .filter((item, index, array) => {
-                // 同じテキストの最後のインデックスを見つける
-                let lastIndex = -1;
-                for (let i = array.length - 1; i >= 0; i--) {
-                  if (array[i].text === item.text) {
-                    lastIndex = i;
-                    break;
-                  }
-                }
-                return index === lastIndex;
-              })
+              .filter(item => item.text && item.text.length >= 10)
+              // 最新の10件のみ表示（パフォーマンス向上）
+              .slice(-10)
               .map((item, arrayIndex) => {
                 const isFinal = item.is_final === true;
                 const icon = isFinal ? '✅' : '📊';
