@@ -36,32 +36,42 @@ export function SessionPage() {
       const { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status } = payload;
       
       setRealtimeClassifications((prev) => {
-        // 部分結果の場合、同じ話者の最新の部分結果を更新（継続更新）
-        if (is_partial) {
-          // 同じ話者の最新の部分結果を探す（最後から検索）
-          for (let i = prev.length - 1; i >= 0; i--) {
-            const item = prev[i];
-            if (item.speaker === speaker && (item.is_partial === true || item.ai_status !== "AI確定")) {
-              // 既存の部分結果を更新（継続更新）
-              const updated = [...prev];
-              updated[i] = { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status };
-              console.log('[SessionPage] Updated continuous result:', { text, speaker, ai_status, index: i });
-              return updated;
-            }
-          }
-        }
+        // result_idベースで確実に統合
+        const resultId = payload.result_id || `analysis_${index}`;
         
-        // 同じインデックスの既存エントリを探す
-        const existingIndex = prev.findIndex((item) => item.index === index);
+        // 既存エントリを result_id で検索
+        const existingIndex = prev.findIndex((item) => 
+          (item as any).result_id === resultId || item.index === index
+        );
         
         if (existingIndex >= 0) {
+          // 既存エントリを更新（継続更新）
           const updated = [...prev];
-          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status };
+          updated[existingIndex] = { 
+            index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
+            result_id: resultId
+          } as any;
+          console.log('[SessionPage] Updated existing result:', { 
+            text: text.substring(0, 30), speaker, ai_status, resultId, existingIndex 
+          });
           return updated;
         }
         
-        // 新しいエントリを追加
-        return [...prev, { index, text, speaker, category, alignment, method, is_final, is_partial, ai_status }].slice(-100); // 最新100件に制限
+        // 新しいエントリを追加（インデックス順でソート）
+        const newEntry = { 
+          index, text, speaker, category, alignment, method, is_final, is_partial, ai_status,
+          result_id: resultId
+        } as any;
+        
+        const updated = [...prev, newEntry];
+        // インデックス順でソート（順番を保持）
+        updated.sort((a, b) => (a.index || 0) - (b.index || 0));
+        
+        console.log('[SessionPage] Added new result:', { 
+          text: text.substring(0, 30), speaker, ai_status, resultId, totalItems: updated.length 
+        });
+        
+        return updated.slice(-100); // 最新100件に制限
       });
     },
     isMuted // ミュート状態を渡す
@@ -644,7 +654,7 @@ export function SessionPage() {
               <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 {realtimeClassifications
                   .filter(item => item.text.length >= 1) // 即座表示のため閾値を最小に
-                  .slice().reverse()
+                  .slice() // ソート済みなのでreverseしない（時系列順）
                   .map((item, index) => {
                     const isFinal = item.is_final === true;
                     const isPartial = item.is_partial === true;

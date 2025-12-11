@@ -323,35 +323,30 @@ class SessionController:
         """Handle transcription result with integrated real-time analysis."""
         is_final = not is_partial
         
-        # Handle transcription
+        # Handle transcription (but don't send to WebSocket yet - we'll send integrated result)
         await self._handle_result_streaming(session_data, result_id, speaker_label, raw_label, text, is_final, websocket)
         
-        # Integrated real-time analysis
+        # Integrated real-time analysis with consistent indexing
         if len(text.strip()) >= 3:
-            # Create consistent index for analysis
+            # Use consistent index based on result_id to ensure same utterance uses same index
             analysis_index = hash(result_id) % 100000
             
-            # Immediate keyword-based analysis for all results
-            await self._send_immediate_analysis(websocket, session_data["meeting_id"], text, speaker_label, analysis_index, is_partial)
-            
-            # Bedrock analysis triggers:
-            # 1. Sentence completion (ends with punctuation)
-            # 2. Speaker change (final result)
-            should_trigger_bedrock = False
-            bedrock_reason = ""
-            
+            # Determine AI status based on state
             if is_final:
-                # Speaker change - trigger Bedrock for full utterance
-                should_trigger_bedrock = True
-                bedrock_reason = "speaker_change"
-            elif self._is_sentence_complete(text):
-                # Sentence completion - trigger Bedrock for sentence
-                should_trigger_bedrock = True
-                bedrock_reason = "sentence_complete"
+                ai_status = "AI確定"  # Final result always gets AI確定 after Bedrock
+            else:
+                ai_status = "AI暫定"  # Partial results get AI暫定
             
-            if should_trigger_bedrock:
+            # Send immediate analysis with proper status
+            await self._send_integrated_analysis(
+                websocket, session_data["meeting_id"], text, speaker_label, 
+                analysis_index, is_partial, ai_status
+            )
+            
+            # Trigger Bedrock analysis only for final results (speaker change)
+            if is_final:
                 asyncio.create_task(self._classify_with_bedrock_integrated(
-                    session_data, text, speaker_label, analysis_index, websocket, bedrock_reason
+                    session_data, text, speaker_label, analysis_index, websocket, "speaker_change"
                 ))
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
@@ -643,6 +638,41 @@ class SessionController:
         else:
             return "コメント"
     
+    async def _send_integrated_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool, ai_status: str) -> None:
+        """Send integrated analysis with consistent indexing."""
+        session_data = self.session_data.get(meeting_id)
+        if not session_data:
+            return
+        
+        # Skip meta information
+        if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
+            return
+        
+        # Ultra-fast analysis
+        category = self._fast_guess_category(text)
+        alignment = self._fast_calculate_alignment(text, session_data["agenda_text"])
+        
+        result = {
+            "index": index,
+            "text": text,
+            "speaker": speaker,
+            "category": category,
+            "alignment": alignment,
+            "method": "keyword",
+            "is_final": not is_partial,
+            "is_partial": is_partial,
+            "ai_status": ai_status,
+            "result_id": f"analysis_{index}"  # Consistent result_id for frontend
+        }
+
+        try:
+            await websocket.send_json({
+                "type": "realtime_classification",
+                "payload": result
+            })
+        except Exception as e:
+            self.logger.error(f"Failed to send integrated analysis: {e}")
+
     async def _send_immediate_analysis(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool) -> None:
         """Send immediate keyword-based analysis."""
         session_data = self.session_data.get(meeting_id)
@@ -733,7 +763,8 @@ class SessionController:
                     "method": "bedrock",
                     "is_final": reason == "speaker_change",
                     "is_partial": False,
-                    "ai_status": ai_status
+                    "ai_status": "AI確定",  # Bedrock analysis always results in AI確定
+                    "result_id": f"analysis_{index}"  # Consistent result_id
                 }
                 
                 # Send AI result
