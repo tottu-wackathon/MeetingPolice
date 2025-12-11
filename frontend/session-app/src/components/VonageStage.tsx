@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-// eslint-disable-next-line import/no-unresolved
-import OT from '@opentok/client';
+import { VideoClient, Session, Publisher, Subscriber } from '@vonage/video-client';
 
 type Props = {
   apiKey: string;
@@ -81,10 +80,9 @@ export function VonageStage({
       return undefined;
     }
 
-    const OTClient: any = OT as any;
-    if (!OTClient?.initSession) {
+    if (!VideoClient) {
       setStatus('error');
-      setError('Vonage SDK を読み込めませんでした（音声のみの利用は可能です）');
+      setError('Vonage Video SDK を読み込めませんでした（音声のみの利用は可能です）');
       return undefined;
     }
 
@@ -92,10 +90,11 @@ export function VonageStage({
     setError(null);
 
     try {
-      const session = OTClient.initSession(apiKey, sessionId);
+      const client = new VideoClient();
+      const session = client.createSession(apiKey, sessionId);
       sessionRef.current = session;
 
-      session.on('sessionConnected', (event: any) => {
+      session.on('connected', (event: any) => {
         console.log('[Vonage] Session connected successfully');
         const info = {
           sessionId: session.sessionId,
@@ -109,7 +108,7 @@ export function VonageStage({
         setStatus('connected');
       });
       
-      session.on('sessionDisconnected', (event: any) => {
+      session.on('disconnected', (event: any) => {
         console.log('[Vonage] Session disconnected:', event.reason);
         setStatus('idle');
       });
@@ -196,7 +195,7 @@ export function VonageStage({
         },
       };
 
-      const publisher = OTClient.initPublisher(
+      const publisher = client.initPublisher(
         publisherContainer,
         publisherOptions,
         (err: any) => {
@@ -207,18 +206,14 @@ export function VonageStage({
       );
       publisherRef.current = publisher;
 
-      session.connect(token, (err: any) => {
-        if (err) {
+      session.connect(token)
+        .then(() => {
+          return session.publish(publisher);
+        })
+        .catch((err: any) => {
           setStatus('error');
           setError(err.message || String(err));
-          return;
-        }
-        session.publish(publisher, (pubErr: any) => {
-          if (pubErr) {
-            setError(pubErr.message || String(pubErr));
-          }
         });
-      });
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
