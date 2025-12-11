@@ -138,14 +138,13 @@ class VonageClient:
             
             # Create TokenOptions object
             token_options = TokenOptions(
+                session_id=session_id,
                 role='publisher',  # Can publish and subscribe
                 expire_time=expire_time,
                 data=f'meeting_session_{session_id[:8]}'  # Optional connection data
             )
             
-            token = self.video_client.generate_client_token(
-                session_id, token_options
-            )
+            token = self.video_client.generate_client_token(token_options)
             
             self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
             return token
