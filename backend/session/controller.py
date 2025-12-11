@@ -152,19 +152,14 @@ class SessionController:
                         
                         if last_text and len(last_text) > 0:
                             # Check if current text is an extension of previous text
-                            # Allow for some flexibility in matching
-                            min_len = min(len(last_text), len(transcript))
-                            if min_len > 3:  # Only check if we have enough text
-                                # Check if they share a common prefix
-                                common_prefix_len = 0
-                                for i in range(min_len):
-                                    if last_text[i] == transcript[i]:
-                                        common_prefix_len += 1
-                                    else:
-                                        break
-                                
-                                # Consider it continuation if >70% matches or new text is longer
-                                if (common_prefix_len / min_len > 0.7) or (len(transcript) > len(last_text)):
+                            # More lenient matching for Japanese text
+                            if len(transcript) >= len(last_text):
+                                # New text is longer - likely continuation
+                                is_continuation = True
+                            elif len(transcript) >= len(last_text) * 0.8:
+                                # Similar length - check for common content
+                                common_chars = sum(1 for a, b in zip(last_text, transcript) if a == b)
+                                if common_chars >= len(last_text) * 0.6:
                                     is_continuation = True
                         
                         if session_data['current_utterance_id'] is None or not is_continuation:
@@ -331,10 +326,36 @@ class SessionController:
         return session_data["speaker_labels"][key]
 
     async def _handle_result_streaming(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_final: bool, websocket: WebSocket) -> None:
-        """Handle a single transcription result with poc_satomin-like logic."""
+        """Handle a single transcription result with continuous speaker consolidation."""
         entry = session_data["pending_results"].get(result_id)
         
         if not entry:
+            # Check if we should append to the last transcript instead of creating new entry
+            last_transcript = session_data["transcripts"][-1] if session_data["transcripts"] else None
+            should_append_to_last = (
+                last_transcript and 
+                last_transcript.get("speaker") == speaker_label and
+                speaker_label not in ["判別中...", "発話中..."] and  # Don't merge unknown speakers
+                not is_final  # Only append partial results to avoid mixing final results
+            )
+            
+            if should_append_to_last:
+                # Update the last transcript entry instead of creating new one
+                last_transcript["text"] = text
+                last_transcript["timestamp"] = now_iso()
+                
+                # Send update for the existing entry
+                await websocket.send_json({
+                    "type": "transcript",
+                    "action": "update",
+                    "payload": last_transcript
+                })
+                
+                # Store in pending_results for further updates
+                session_data["pending_results"][result_id] = last_transcript.copy()
+                self.logger.info(f"Appended to last transcript: '{text}' (speaker: {speaker_label})")
+                return
+            
             # New entry - append
             entry = {
                 "index": session_data["next_entry_index"],
@@ -380,6 +401,7 @@ class SessionController:
             # Update text if changed
             self.logger.info(f"Text update: '{entry['text']}' -> '{text}' (result_id: {result_id})")
             entry["text"] = text
+            entry["timestamp"] = now_iso()  # Update timestamp on text change
             
             # Send update for text change
             await websocket.send_json({

@@ -117,6 +117,35 @@ export function useTranscripts(
                     return updateExisting(prev);
                   }
                   
+                  // Check if we should merge with the last entry (same speaker)
+                  const lastEntry = prev[prev.length - 1];
+                  const shouldMergeWithLast = (
+                    lastEntry && 
+                    lastEntry.speaker === payload.speaker &&
+                    payload.speaker !== '判別中...' &&  // Don't merge unknown speakers
+                    payload.speaker !== '発話中...'     // Don't merge speaking indicators
+                  );
+                  
+                  if (shouldMergeWithLast) {
+                    console.log('[useTranscripts] Merging with last entry:', {
+                      lastText: lastEntry.transcript,
+                      newText: payload.text,
+                      speaker: payload.speaker
+                    });
+                    
+                    // Update the last entry instead of adding new one
+                    const updatedItems = [...prev];
+                    updatedItems[updatedItems.length - 1] = {
+                      ...lastEntry,
+                      transcript: payload.text || '',
+                      timestamp: payload.timestamp || lastEntry.timestamp,
+                      // Update additional properties
+                      ...(payload as any),
+                    } as LiveTranscript;
+                    
+                    return updatedItems;
+                  }
+                  
                   const newEntry: LiveTranscript = {
                     meetingId,
                     transcript: payload.text || '',
