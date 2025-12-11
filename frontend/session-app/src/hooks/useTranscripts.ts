@@ -117,13 +117,19 @@ export function useTranscripts(
                     return updateExisting(prev);
                   }
                   
-                  // Check if we should merge with the last entry (same speaker)
+                  // Check if we should merge with the last entry (same speaker and result_id)
                   const lastEntry = prev[prev.length - 1];
+                  const lastTimestamp = lastEntry ? new Date(lastEntry.timestamp).getTime() : 0;
+                  const currentTimestamp = new Date(payload.timestamp || new Date().toISOString()).getTime();
+                  const timeDiff = (currentTimestamp - lastTimestamp) / 1000; // seconds
+                  
                   const shouldMergeWithLast = (
                     lastEntry && 
                     lastEntry.speaker === payload.speaker &&
                     payload.speaker !== '判別中...' &&  // Don't merge unknown speakers
-                    payload.speaker !== '発話中...'     // Don't merge speaking indicators
+                    payload.speaker !== '発話中...' &&  // Don't merge speaking indicators
+                    (lastEntry as any).result_id === payload.result_id &&  // Same utterance
+                    timeDiff < 5  // Less than 5 seconds gap
                   );
                   
                   if (shouldMergeWithLast) {

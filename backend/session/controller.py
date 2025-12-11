@@ -5,6 +5,7 @@ from contextlib import suppress
 import queue
 import threading
 import logging
+import time
 from typing import Any
 
 from fastapi import WebSocket
@@ -143,6 +144,9 @@ class SessionController:
                     if not hasattr(session_data, 'current_utterance_id'):
                         session_data['current_utterance_id'] = None
                         session_data['last_partial_text'] = ""
+                        session_data['last_final_time'] = 0
+                    
+                    current_time = time.time()
                     
                     # Determine if this is a new utterance or continuation
                     if is_partial:
@@ -150,7 +154,13 @@ class SessionController:
                         last_text = session_data['last_partial_text']
                         is_continuation = False
                         
-                        if last_text and len(last_text) > 0:
+                        # Check time gap - if more than 2 seconds since last final result, start new utterance
+                        time_gap = current_time - session_data.get('last_final_time', 0)
+                        
+                        if time_gap > 2.0:
+                            # Long pause - definitely new utterance
+                            is_continuation = False
+                        elif last_text and len(last_text) > 0:
                             # Check if current text is an extension of previous text
                             # More lenient matching for Japanese text
                             if len(transcript) >= len(last_text):
@@ -165,7 +175,7 @@ class SessionController:
                         if session_data['current_utterance_id'] is None or not is_continuation:
                             # New utterance started
                             session_data['current_utterance_id'] = f"session_{session_data['next_entry_index']}"
-                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']} (text: '{transcript}')")
+                            self.logger.info(f"New utterance started: {session_data['current_utterance_id']} (text: '{transcript}', time_gap: {time_gap:.1f}s)")
                         else:
                             self.logger.info(f"Continuing utterance: {session_data['current_utterance_id']} (text: '{transcript}')")
                         
@@ -178,15 +188,20 @@ class SessionController:
                         else:
                             result_id = f"session_{session_data['next_entry_index']}"
                         
-                        # Reset for next utterance
+                        # Record final result time and reset for next utterance
+                        session_data['last_final_time'] = current_time
                         session_data['current_utterance_id'] = None
                         session_data['last_partial_text'] = ""
                     
                     self.logger.info(f"TranscribeStream result: is_partial={is_partial}, text='{transcript}', result_id={result_id}")
                     
+                    # Use dynamic speaker detection (for now using Speaker 1, but can be enhanced)
+                    speaker_label = "Speaker 1"
+                    raw_speaker = "spk_1"
+                    
                     # Use the improved result handling
                     asyncio.create_task(self._handle_result_streaming(
-                        session_data, result_id, "Speaker 1", "spk_1", transcript, not is_partial, websocket
+                        session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial, websocket
                     ))
                         
                 except Exception as e:
@@ -332,11 +347,14 @@ class SessionController:
         if not entry:
             # Check if we should append to the last transcript instead of creating new entry
             last_transcript = session_data["transcripts"][-1] if session_data["transcripts"] else None
+            
+            # More strict conditions for appending to avoid blocking new utterances
             should_append_to_last = (
                 last_transcript and 
                 last_transcript.get("speaker") == speaker_label and
                 speaker_label not in ["判別中...", "発話中..."] and  # Don't merge unknown speakers
-                not is_final  # Only append partial results to avoid mixing final results
+                not is_final and  # Only append partial results
+                last_transcript.get("result_id") == result_id  # Same result_id means same utterance
             )
             
             if should_append_to_last:
@@ -353,7 +371,7 @@ class SessionController:
                 
                 # Store in pending_results for further updates
                 session_data["pending_results"][result_id] = last_transcript.copy()
-                self.logger.info(f"Appended to last transcript: '{text}' (speaker: {speaker_label})")
+                self.logger.info(f"Appended to last transcript: '{text}' (speaker: {speaker_label}, result_id: {result_id})")
                 return
             
             # New entry - append
