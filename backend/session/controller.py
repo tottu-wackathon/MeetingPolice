@@ -114,6 +114,44 @@ class SessionController:
             "agenda_length": len(agenda_text),
             "agenda_preview": agenda_text[:100] + "..." if len(agenda_text) > 100 else agenda_text
         }
+    
+    def _load_default_agenda(self) -> str:
+        """デフォルトアジェンダファイルを読み込む"""
+        import os
+        default_agenda_path = os.path.join(os.path.dirname(__file__), "..", "data", "default_agenda.txt")
+        
+        try:
+            with open(default_agenda_path, 'r', encoding='utf-8') as f:
+                agenda_text = f.read().strip()
+                self.logger.info("📋 デフォルトアジェンダを読み込み: %d文字", len(agenda_text))
+                return agenda_text
+        except FileNotFoundError:
+            self.logger.warning("⚠️ デフォルトアジェンダファイルが見つかりません: %s", default_agenda_path)
+            return "議題: デフォルトアジェンダ\n\n会議の目的と検討事項を記載してください。"
+        except Exception as e:
+            self.logger.error("❌ デフォルトアジェンダ読み込みエラー: %s", e)
+            return "議題: デフォルトアジェンダ\n\n会議の目的と検討事項を記載してください。"
+    
+    def _get_meeting_agenda(self, meeting_id: str) -> str:
+        """ミーティングのアジェンダを取得（なければデフォルトを使用）"""
+        # 既に設定されているアジェンダがあるかチェック
+        if hasattr(self, '_meeting_agendas') and meeting_id in self._meeting_agendas:
+            return self._meeting_agendas[meeting_id]
+        
+        # セッションデータにアジェンダがあるかチェック
+        if meeting_id in self.session_data and self.session_data[meeting_id].get("agenda_text"):
+            return self.session_data[meeting_id]["agenda_text"]
+        
+        # デフォルトアジェンダを読み込み
+        default_agenda = self._load_default_agenda()
+        
+        # デフォルトアジェンダを保存
+        if not hasattr(self, '_meeting_agendas'):
+            self._meeting_agendas = {}
+        self._meeting_agendas[meeting_id] = default_agenda
+        
+        self.logger.info("📋 ミーティング %s にデフォルトアジェンダを設定", meeting_id)
+        return default_agenda
 
     async def stream_transcripts(self, websocket: WebSocket, meeting_id: str) -> None:
         meeting = self.repository.get_meeting(meeting_id)
@@ -123,14 +161,8 @@ class SessionController:
 
         await websocket.accept()
         
-        # アジェンダテキストを取得
-        agenda_text = ""
-        if hasattr(self, '_meeting_agendas') and meeting_id in self._meeting_agendas:
-            agenda_text = self._meeting_agendas[meeting_id]
-            self.logger.info("アップロードされたアジェンダを使用 meeting_id=%s", meeting_id)
-        else:
-            agenda_text = meeting.title or ""
-            self.logger.info("会議タイトルをアジェンダとして使用 meeting_id=%s", meeting_id)
+        # アジェンダテキストを取得（デフォルトアジェンダ対応）
+        agenda_text = self._get_meeting_agenda(meeting_id)
         
         # セッションデータを初期化（poc_satomin準拠）
         session_data = {

@@ -40,7 +40,10 @@ def validate_meeting(meeting_id: str):
 async def upload_agenda(meeting_id: str, file: UploadFile | None = File(None)):
     try:
         if file is None:
-            raise HTTPException(status_code=400, detail="ファイルが添付されていません")
+            # ファイルがない場合はデフォルトアジェンダを設定
+            default_agenda = controller._load_default_agenda()
+            result = controller.set_meeting_agenda(meeting_id, default_agenda)
+            return {"message": "デフォルトアジェンダが設定されました", "filename": "default_agenda.txt", **result}
 
         if not file.content_type or not file.content_type.startswith('text/'):
             raise HTTPException(status_code=400, detail="テキストファイルのみアップロード可能です")
@@ -53,6 +56,21 @@ async def upload_agenda(meeting_id: str, file: UploadFile | None = File(None)):
         return {"message": "アジェンダが設定されました", "filename": file.filename, **result}
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="ファイルの文字エンコーディングが正しくありません")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/meetings/{meeting_id}/agenda")
+async def get_agenda(meeting_id: str):
+    """ミーティングのアジェンダを取得（デフォルトアジェンダ対応）"""
+    try:
+        agenda_text = controller._get_meeting_agenda(meeting_id)
+        return {
+            "meeting_id": meeting_id,
+            "agenda_text": agenda_text,
+            "agenda_length": len(agenda_text),
+            "agenda_preview": agenda_text[:100] + "..." if len(agenda_text) > 100 else agenda_text
+        }
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -329,7 +329,7 @@ class AnalysisHandler:
         if len(text_stripped) < 5:
             return True
         
-        # 接続詞や繋ぎ言葉をスキップ（コメント扱い）
+        # 接続詞や繋ぎ言葉をスキップ（ただし重要キーワードがある場合は継続）
         if self._is_conjunction_or_filler(text_stripped):
             self.logger.info(f"🔍 接続詞・繋ぎ言葉として分析スキップ: '{text_stripped}'")
             return True
@@ -355,35 +355,54 @@ class AnalysisHandler:
     def _is_conjunction_or_filler(self, text: str) -> bool:
         """
         接続詞や繋ぎ言葉を検出する
-        これらの発言は「コメント」として扱い、警察出動の対象外とする
+        ただし、重要キーワードが含まれる場合や長い文章の場合は分析を継続する
         """
         text_stripped = text.strip()
         
-        # 日本語の接続詞・繋ぎ言葉のパターン
+        # 重要キーワードが含まれる場合は接続詞で始まっていても分析する
+        important_keywords = {
+            "仕事", "面倒", "しんどい", "大変", "困る", "問題", "課題", "改善", "効率",
+            "ワッカソン", "解決", "検討", "議論", "提案", "意見", "考え", "思う"
+        }
+        
+        # 重要キーワードチェック
+        text_lower = text.lower()
+        has_important_keywords = any(keyword in text_lower for keyword in important_keywords)
+        
+        if has_important_keywords:
+            self.logger.info(f"🎯 重要キーワード検出により接続詞フィルタを回避: '{text_stripped[:30]}...'")
+            return False
+        
+        # 長い文章（20文字以上）の場合は内容を重視
+        if len(text_stripped) >= 20:
+            self.logger.info(f"📝 長い文章により接続詞フィルタを回避: '{text_stripped[:30]}...' (len={len(text_stripped)})")
+            return False
+        
+        # 日本語の接続詞・繋ぎ言葉のパターン（短い発言のみ対象）
         conjunction_patterns = [
-            # 基本的な接続詞
-            r'^(それで|だから|でも|しかし|ただし|なので|そして|また|さらに|一方|ところで|ちなみに)',
+            # 基本的な接続詞（短い場合のみ）
+            r'^(それで|だから|でも|しかし|ただし|なので|そして|また|さらに|一方|ところで|ちなみに)$',
             # 感嘆詞・相槌
-            r'^(あー|えー|うーん|そうですね|なるほど|確かに|いいですね)',
+            r'^(あー|えー|うーん|そうですね|なるほど|確かに|いいですね)$',
             # 繋ぎ言葉・フィラー
-            r'^(のが|やっぱり|ちょっと|まあ|とりあえず|いちおう|一応)',
-            # 複合パターン（ユーザーの例: "のが、やっぱりちょっと"）
-            r'^(のが[、，]?\s*(やっぱり|ちょっと))',
-            r'^(やっぱり[、，]?\s*(ちょっと|のが))',
+            r'^(のが|やっぱり|ちょっと|まあ|とりあえず|いちおう|一応)$',
+            # 複合パターン（短い組み合わせのみ）
+            r'^(のが[、，]?\s*(やっぱり|ちょっと))$',
+            r'^(やっぱり[、，]?\s*(ちょっと|のが))$',
             # 短い感想・反応
-            r'^(そうか|そっか|なるほど|ふーん|へー|ほー)',
+            r'^(そうか|そっか|なるほど|ふーん|へー|ほー)$',
             # 時間稼ぎの表現
-            r'^(えーっと|あのー|そのー|まー)',
+            r'^(えーっと|あのー|そのー|まー)$',
         ]
         
-        # パターンマッチング
+        # パターンマッチング（短い発言のみ）
         import re
         for pattern in conjunction_patterns:
             if re.match(pattern, text_stripped, re.IGNORECASE):
-                self.logger.info(f"🔍 接続詞・繋ぎ言葉を検出: '{text_stripped}' → パターン: {pattern}")
+                self.logger.info(f"🔍 短い接続詞・繋ぎ言葉を検出: '{text_stripped}' → パターン: {pattern}")
                 return True
         
-        # 短い単語の組み合わせパターン
+        # 短い単語の組み合わせパターン（15文字以下のみ）
         short_fillers = [
             "のが", "やっぱり", "ちょっと", "まあ", "でも", "だから", "それで",
             "そうですね", "なるほど", "確かに", "いいですね", "そうか", "そっか"
