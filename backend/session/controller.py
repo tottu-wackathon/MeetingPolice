@@ -449,17 +449,7 @@ class SessionController:
             
             self.logger.info(f"📝 New transcript entry created for {speaker_label} (index: {new_entry['index']})")
         
-        # Handle speaker label stabilization (poc_satomin style)
-        if current_transcript:
-            current_raw = current_transcript.get("raw_speaker", "spk_unk")
-            # Allow upgrade from unknown to known speaker, but keep speaker stable once known
-            if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
-                current_transcript["raw_speaker"] = raw_label
-                stable_speaker = self._speaker_name(session_data, raw_label)
-                current_transcript["speaker"] = stable_speaker
-                self.logger.info(f"👤 Speaker label upgraded: {current_raw} → {raw_label} ({stable_speaker})")
-            
-            # Send new transcript
+            # Send new transcript for new entry
             await websocket.send_json({
                 "type": "transcript",
                 "action": "new",  # Indicate this is a new entry
@@ -471,6 +461,17 @@ class SessionController:
                 "speaker": speaker_label,
                 "index": new_entry["index"],
             })
+        
+        # Handle speaker label stabilization (poc_satomin style)
+        current_transcript = session_data.get("current_transcript")
+        if current_transcript:
+            current_raw = current_transcript.get("raw_speaker", "spk_unk")
+            # Allow upgrade from unknown to known speaker, but keep speaker stable once known
+            if self._is_unknown_label(current_raw) and not self._is_unknown_label(raw_label):
+                current_transcript["raw_speaker"] = raw_label
+                stable_speaker = self._speaker_name(session_data, raw_label)
+                current_transcript["speaker"] = stable_speaker
+                self.logger.info(f"👤 Speaker label upgraded: {current_raw} → {raw_label} ({stable_speaker})")
         
         # If this is a final result, finalize the transcript
         if is_final:
