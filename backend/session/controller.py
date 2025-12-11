@@ -353,7 +353,6 @@ class SessionController:
                             "timestamp": now_iso(),
                         }
                     })
-                    })
                     
                     # Send classification to queue
                     await self._classify_realtime_hybrid(session_data, phrase, "Speaker A" if phrase_index % 2 else "Speaker B", phrase_index + 1)
