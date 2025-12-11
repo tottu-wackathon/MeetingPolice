@@ -68,7 +68,7 @@ class TranscribeStream:
             on_transcript({"error": "transcribe client not configured"})
             return
             
-        # Try new amazon-transcribe streaming API first
+        # Try amazon-transcribe streaming API first (with speaker identification)
         try:
             self._stream_with_amazon_transcribe(audio_queue, on_transcript, language_code)
             return
@@ -176,14 +176,12 @@ class TranscribeStream:
                         last_chunk_time = current_time
                     await asyncio.sleep(0.1)
         
-        # Start streaming with speaker identification
-        logger.info("Starting transcribe stream with speaker identification...")
+        # Start streaming (speaker identification not supported in amazon-transcribe library)
+        logger.info("Starting transcribe stream (no speaker identification)...")
         stream = await client.start_stream_transcription(
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
-            show_speaker_labels=True,
-            max_speaker_labels=5,  # Maximum number of speakers to identify
         )
         
         # Create event handler
@@ -196,32 +194,58 @@ class TranscribeStream:
                 try:
                     results = transcript_event.transcript.results
                     for result in results:
+                        # Debug: Log result structure to understand speaker information
+                        logger.debug(f"Result attributes: {[attr for attr in dir(result) if not attr.startswith('_')]}")
+                        
                         if result.alternatives:
                             alternative = result.alternatives[0]
                             transcript = alternative.transcript
                             if transcript and transcript.strip():
-                                # Extract speaker information from items
-                                speaker_label = None
-                                speaker_counts = {}
+                                # Debug: Log alternative structure
+                                logger.debug(f"Alternative attributes: {[attr for attr in dir(alternative) if not attr.startswith('_')]}")
                                 
-                                # Count speaker labels in items
-                                if hasattr(alternative, 'items') and alternative.items:
-                                    for item in alternative.items:
-                                        # Try different attribute names for speaker label
+                                # Extract speaker information from the result
+                                speaker_label = None
+                                
+                                # Check if result has speaker attribute directly
+                                if hasattr(result, 'speaker') and result.speaker:
+                                    speaker_label = result.speaker
+                                    logger.debug(f"Found speaker in result: {speaker_label}")
+                                
+                                # If not found in result, check alternative
+                                elif hasattr(alternative, 'speaker') and alternative.speaker:
+                                    speaker_label = alternative.speaker
+                                    logger.debug(f"Found speaker in alternative: {speaker_label}")
+                                
+                                # If still not found, check items for speaker information
+                                elif hasattr(alternative, 'items') and alternative.items:
+                                    logger.debug(f"Checking {len(alternative.items)} items for speaker info")
+                                    speaker_counts = {}
+                                    for i, item in enumerate(alternative.items):
+                                        # Debug: Log item structure
+                                        if i == 0:  # Only log first item to avoid spam
+                                            logger.debug(f"Item attributes: {[attr for attr in dir(item) if not attr.startswith('_')]}")
+                                        
+                                        # Try different attribute names for speaker
                                         label = None
-                                        if hasattr(item, 'speaker_label'):
-                                            label = item.speaker_label
-                                        elif hasattr(item, 'speaker'):
+                                        if hasattr(item, 'speaker') and item.speaker:
                                             label = item.speaker
+                                        elif hasattr(item, 'speaker_label') and item.speaker_label:
+                                            label = item.speaker_label
                                         elif hasattr(item, 'content') and hasattr(item, 'speaker_id'):
                                             label = getattr(item, 'speaker_id', None)
                                         
                                         if label:
                                             speaker_counts[label] = speaker_counts.get(label, 0) + 1
+                                    
+                                    # Use the most frequent speaker label
+                                    if speaker_counts:
+                                        speaker_label = max(speaker_counts, key=speaker_counts.get)
+                                        logger.debug(f"Found speaker in items: {speaker_label} (counts: {speaker_counts})")
                                 
-                                # Use the most frequent speaker label
-                                if speaker_counts:
-                                    speaker_label = max(speaker_counts, key=speaker_counts.get)
+                                # If no speaker found, use simple time-based speaker estimation
+                                if not speaker_label:
+                                    logger.debug("No speaker information found, will use time-based estimation")
                                 
                                 logger.info("Transcribe result: %s (partial: %s, speaker: %s)", 
                                           transcript, result.is_partial, speaker_label)
@@ -270,6 +294,144 @@ class TranscribeStream:
             logger.error("Error writing audio chunks: %s", e)
             raise
 
+    def _stream_with_amazon_transcribe_no_speaker(
+        self,
+        audio_queue: queue.Queue[bytes | None],
+        on_transcript: Callable[[dict[str, Any]], None],
+        language_code: str = "ja-JP",
+    ) -> None:
+        """Use amazon-transcribe streaming client without speaker identification."""
+        import asyncio
+        import logging
+        import threading
+        
+        logger = logging.getLogger(__name__)
+        logger.info("Starting amazon-transcribe streaming without speaker identification...")
+        
+        def run_async_transcribe():
+            try:
+                asyncio.run(self._async_transcribe_stream_no_speaker(audio_queue, on_transcript, language_code))
+            except Exception as e:
+                logger.error("Async transcribe failed: %s", e)
+                raise
+        
+        # Run in a separate thread to avoid blocking
+        thread = threading.Thread(target=run_async_transcribe, daemon=True)
+        thread.start()
+        thread.join()  # Wait for completion
+
+    async def _async_transcribe_stream_no_speaker(
+        self,
+        audio_queue: queue.Queue[bytes | None],
+        on_transcript: Callable[[dict[str, Any]], None],
+        language_code: str = "ja-JP",
+    ):
+        """Async transcribe streaming implementation without speaker identification."""
+        from amazon_transcribe.client import TranscribeStreamingClient
+        from amazon_transcribe.handlers import TranscriptResultStreamHandler
+        from amazon_transcribe.model import TranscriptEvent
+        from amazon_transcribe.auth import StaticCredentialResolver
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get AWS credentials
+        session = get_session()
+        credentials = session.get_credentials()
+        if not credentials:
+            raise RuntimeError("AWS credentials not found")
+            
+        frozen = credentials.get_frozen_credentials()
+        
+        # Create credential resolver
+        credential_resolver = StaticCredentialResolver(
+            access_key_id=frozen.access_key,
+            secret_access_key=frozen.secret_key,
+            session_token=frozen.token,
+        )
+        
+        # Create client
+        client = TranscribeStreamingClient(
+            region=get_settings().aws_region,
+            credential_resolver=credential_resolver,
+        )
+        
+        # Create audio stream generator
+        async def audio_generator():
+            import asyncio
+            import time
+            last_chunk_time = time.time()
+            silence_chunk = b'\x00' * 320  # 10ms of silence at 16kHz
+            
+            while True:
+                try:
+                    # Use asyncio to avoid blocking
+                    chunk = await asyncio.get_event_loop().run_in_executor(
+                        None, audio_queue.get, True, 0.5  # 0.5 second timeout
+                    )
+                    if chunk is None:
+                        logger.info("Audio stream ended")
+                        break
+                    last_chunk_time = time.time()
+                    yield chunk
+                except:
+                    # Timeout or queue empty, send silence to prevent timeout
+                    current_time = time.time()
+                    if current_time - last_chunk_time > 10:  # Send silence every 10 seconds
+                        logger.debug("Sending silence chunk to prevent timeout")
+                        yield silence_chunk
+                        last_chunk_time = current_time
+                    await asyncio.sleep(0.1)
+        
+        # Start streaming (no speaker identification)
+        logger.info("Starting transcribe stream (no speaker identification)...")
+        stream = await client.start_stream_transcription(
+            language_code=language_code,
+            media_sample_rate_hz=16000,
+            media_encoding="pcm",
+        )
+        
+        # Create event handler
+        class MyEventHandler(TranscriptResultStreamHandler):
+            def __init__(self, output_stream, callback):
+                super().__init__(output_stream)
+                self.callback = callback
+                
+            async def handle_transcript_event(self, transcript_event: TranscriptEvent):
+                try:
+                    results = transcript_event.transcript.results
+                    for result in results:
+                        if result.alternatives:
+                            alternative = result.alternatives[0]
+                            transcript = alternative.transcript
+                            if transcript and transcript.strip():
+                                logger.info("Transcribe result: %s (partial: %s, no speaker)", 
+                                          transcript, result.is_partial)
+                                
+                                self.callback({
+                                    "transcript": transcript.strip(),
+                                    "is_partial": result.is_partial,
+                                    "speaker_label": None,  # No speaker identification
+                                    "start_time": getattr(result, 'start_time', None),
+                                    "end_time": getattr(result, 'end_time', None),
+                                    "result_id": getattr(result, 'result_id', None),
+                                })
+                except Exception as e:
+                    logger.error("Error handling transcript event: %s", e)
+        
+        handler = MyEventHandler(stream.output_stream, on_transcript)
+        
+        # Process audio and results concurrently
+        try:
+            await asyncio.gather(
+                self._write_audio_chunks(stream, audio_generator()),
+                handler.handle_events()
+            )
+        except Exception as e:
+            logger.error("Transcribe streaming error: %s", e)
+            raise
+        finally:
+            logger.info("Transcribe streaming completed")
 
     def _stream_with_boto3(
         self,

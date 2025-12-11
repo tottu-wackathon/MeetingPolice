@@ -142,6 +142,10 @@ class SessionController:
                     result_id = result.get("result_id", f"result_{len(session_data['pending_results'])}")
                     
                     # Get friendly speaker name
+                    # If no speaker label, use time-based estimation
+                    if not speaker_label:
+                        speaker_label = self._estimate_speaker_by_time(session_data, transcript)
+                    
                     raw_speaker = self._normalize_raw_label(speaker_label)
                     friendly_speaker = self._speaker_name(session_data, raw_speaker)
                     
@@ -896,5 +900,47 @@ class SessionController:
         except Exception as e:
             self.logger.error(f"会議時間計算エラー: {e}")
             return 1
+
+    def _estimate_speaker_by_time(self, session_data: dict, transcript: str) -> str:
+        """
+        時間ベースで話者を推定する（話者識別がない場合のフォールバック）
+        
+        Args:
+            session_data: セッションデータ
+            transcript: 発言内容
+            
+        Returns:
+            推定された話者ラベル
+        """
+        import time
+        
+        # 話者推定用の状態を初期化
+        if "speaker_estimation" not in session_data:
+            session_data["speaker_estimation"] = {
+                "last_speaker": "spk_0",
+                "last_speech_time": time.time(),
+                "silence_threshold": 2.0,  # 2秒以上の沈黙で話者変更と推定
+                "speaker_count": 1
+            }
+        
+        estimation = session_data["speaker_estimation"]
+        current_time = time.time()
+        
+        # 前回の発言から一定時間経過している場合は話者変更と推定
+        time_since_last = current_time - estimation["last_speech_time"]
+        
+        if time_since_last > estimation["silence_threshold"]:
+            # 話者を切り替え
+            if estimation["last_speaker"] == "spk_0":
+                estimation["last_speaker"] = "spk_1"
+            else:
+                estimation["last_speaker"] = "spk_0"
+            
+            self.logger.debug(f"Time-based speaker change: silence for {time_since_last:.1f}s, switching to {estimation['last_speaker']}")
+        
+        # 最後の発言時刻を更新
+        estimation["last_speech_time"] = current_time
+        
+        return estimation["last_speaker"]
 
 
