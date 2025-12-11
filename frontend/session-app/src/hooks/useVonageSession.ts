@@ -46,7 +46,6 @@ export function useVonageSession({
     // Test if we can access OT methods
     if (window.OT) {
       console.log('  - OT.initSession available:', typeof window.OT.initSession);
-      console.log('  - OT version:', window.OT.VERSION || 'Unknown');
     }
   }, [apiKey, sessionId, token, enabled]);
 
@@ -100,7 +99,7 @@ export function useVonageSession({
           attempts++;
           console.log(`📋 Checking Vonage SDK availability (attempt ${attempts}/${maxAttempts})`);
           
-          if (window.OT?.initSession) {
+          if (window.OT && typeof window.OT.initSession === 'function') {
             console.log('✅ Vonage SDK is available');
             resolve();
             return;
@@ -124,10 +123,10 @@ export function useVonageSession({
       .then(() => {
         const OT = window.OT;
         
-        if (!OT?.initSession) {
+        if (!OT || typeof OT.initSession !== 'function') {
           console.error('❌ VONAGE SDK NOT AVAILABLE AFTER WAIT');
           console.error('  - window.OT:', !!window.OT);
-          console.error('  - OT.initSession:', !!OT?.initSession);
+          console.error('  - OT.initSession:', typeof OT?.initSession);
           console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
           setStatus('error');
           setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
@@ -141,228 +140,226 @@ export function useVonageSession({
         setStatus('error');
         setError('Vonage SDK の読み込みがタイムアウトしました。ページを再読み込みしてください。');
       });
-  }, [apiKey, sessionId, token, enabled]);
 
-  const initializeVonageSession = (OT: any) => {
-
-        console.log('📋 Step 1: Initializing Vonage Session');
-        console.log('  - API Key:', apiKey.substring(0, 8) + '...');
-        console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
-        console.log('  - Token Length:', token.length);
-        console.log('  - Token Type:', token.startsWith('eyJ') ? 'JWT' : 'Other');
-        console.log('  - Session ID Type:', sessionId.startsWith('1_MX') || sessionId.startsWith('2_MX') ? 'Vonage' : 'Other');
-        
-        setStatus('connecting');
-        setError(null);
-
-    console.log('📋 Step 2: Creating OT Session Object');
-    console.log('  - Calling OT.initSession with:');
-    console.log('    * API Key:', apiKey.substring(0, 8) + '...');
-    console.log('    * Session ID:', sessionId.substring(0, 20) + '...');
-    
-    const newSession = OT.initSession(apiKey, sessionId);
-    console.log('  ✅ OT.initSession() completed');
-    console.log('  - Session object created:', !!newSession);
-    console.log('  - Session methods available:', newSession ? Object.keys(newSession).slice(0, 10) : 'None');
-    
-    sessionRef.current = newSession;
-    setSession(newSession);
-
-    // Session event handlers
-    newSession.on('sessionConnected', (event: OT.SessionConnectEvent) => {
-      console.log('✅ SESSION CONNECTED EVENT');
-      console.log('  - Event:', event);
-      console.log('  - Connection ID:', event.target?.connection?.connectionId);
-      setStatus('connected');
+    const initializeVonageSession = (OT: any) => {
+      console.log('📋 Step 1: Initializing Vonage Session');
+      console.log('  - API Key:', apiKey.substring(0, 8) + '...');
+      console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
+      console.log('  - Token Length:', token.length);
+      console.log('  - Token Type:', token.startsWith('eyJ') ? 'JWT' : 'Other');
+      console.log('  - Session ID Type:', sessionId.startsWith('1_MX') || sessionId.startsWith('2_MX') ? 'Vonage' : 'Other');
+      
+      setStatus('connecting');
       setError(null);
-      
-      // Add self as host
-      const localConnectionId = newSession.connection?.connectionId || 'local';
-      setParticipants([{
-        id: localConnectionId,
-        name: 'You',
-        role: 'host'
-      }]);
-      
-      console.log('  - Local participant added:', localConnectionId);
-      console.log('✅ Session setup complete - ready for video!');
-    });
 
-    newSession.on('sessionDisconnected', (event: OT.SessionDisconnectEvent) => {
-      console.log('[useVonageSession] Session disconnected:', event);
-      setStatus('idle');
-      setParticipants([]);
-      setStreams([]);
-    });
-
-    newSession.on('connectionCreated', (event: OT.ConnectionEvent) => {
-      console.log('[useVonageSession] Connection created:', event);
-      const connection = event.connection;
-      const isLocal = connection?.connectionId === newSession.connection?.connectionId;
+      console.log('📋 Step 2: Creating OT Session Object');
+      console.log('  - Calling OT.initSession with:');
+      console.log('    * API Key:', apiKey.substring(0, 8) + '...');
+      console.log('    * Session ID:', sessionId.substring(0, 20) + '...');
       
-      if (!isLocal && connection?.connectionId) {
-        setParticipants(prev => {
-          // Check if participant already exists
-          const exists = prev.some(p => p.id === connection.connectionId);
+      const newSession = OT.initSession(apiKey, sessionId);
+      console.log('  ✅ OT.initSession() completed');
+      console.log('  - Session object created:', !!newSession);
+      console.log('  - Session methods available:', newSession ? Object.keys(newSession).slice(0, 10) : 'None');
+      
+      sessionRef.current = newSession;
+      setSession(newSession);
+
+      // Session event handlers
+      newSession.on('sessionConnected', (event: any) => {
+        console.log('✅ SESSION CONNECTED EVENT');
+        console.log('  - Event:', event);
+        console.log('  - Connection ID:', event.target?.connection?.connectionId);
+        setStatus('connected');
+        setError(null);
+        
+        // Add self as host
+        const localConnectionId = newSession.connection?.connectionId || 'local';
+        setParticipants([{
+          id: localConnectionId,
+          name: 'You',
+          role: 'host'
+        }]);
+        
+        console.log('  - Local participant added:', localConnectionId);
+        console.log('✅ Session setup complete - ready for video!');
+      });
+
+      newSession.on('sessionDisconnected', (event: any) => {
+        console.log('[useVonageSession] Session disconnected:', event);
+        setStatus('idle');
+        setParticipants([]);
+        setStreams([]);
+      });
+
+      newSession.on('connectionCreated', (event: any) => {
+        console.log('[useVonageSession] Connection created:', event);
+        const connection = event.connection;
+        const isLocal = connection?.connectionId === newSession.connection?.connectionId;
+        
+        if (!isLocal && connection?.connectionId) {
+          setParticipants(prev => {
+            // Check if participant already exists
+            const exists = prev.some(p => p.id === connection.connectionId);
+            if (exists) {
+              console.log('[useVonageSession] Participant already exists:', connection.connectionId);
+              return prev;
+            }
+            
+            const newParticipant: VonageParticipant = {
+              id: connection.connectionId,
+              name: `Guest ${prev.length}`,
+              role: 'guest'
+            };
+            
+            console.log('[useVonageSession] New participant added:', newParticipant);
+            return [...prev, newParticipant];
+          });
+        }
+      });
+
+      newSession.on('connectionDestroyed', (event: any) => {
+        console.log('[useVonageSession] Connection destroyed:', event);
+        const connectionId = event.connection?.connectionId;
+        if (connectionId) {
+          setParticipants(prev => prev.filter(p => p.id !== connectionId));
+        }
+      });
+
+      newSession.on('streamCreated', (event: any) => {
+        console.log('[useVonageSession] Stream created:', event);
+        const stream = event.stream;
+        
+        setStreams(prev => {
+          // Check if stream already exists
+          const exists = prev.some(s => s.streamId === stream.streamId);
           if (exists) {
-            console.log('[useVonageSession] Participant already exists:', connection.connectionId);
+            console.log('[useVonageSession] Stream already exists:', stream.streamId);
             return prev;
           }
           
-          const newParticipant: VonageParticipant = {
-            id: connection.connectionId,
-            name: `Guest ${prev.length}`,
-            role: 'guest'
-          };
-          
-          console.log('[useVonageSession] New participant added:', newParticipant);
-          return [...prev, newParticipant];
+          console.log('[useVonageSession] New stream added:', stream.streamId);
+          return [...prev, stream];
         });
-      }
-    });
-
-    newSession.on('connectionDestroyed', (event: OT.ConnectionEvent) => {
-      console.log('[useVonageSession] Connection destroyed:', event);
-      const connectionId = event.connection?.connectionId;
-      if (connectionId) {
-        setParticipants(prev => prev.filter(p => p.id !== connectionId));
-      }
-    });
-
-    newSession.on('streamCreated', (event: OT.StreamEvent) => {
-      console.log('[useVonageSession] Stream created:', event);
-      const stream = event.stream;
-      
-      setStreams(prev => {
-        // Check if stream already exists
-        const exists = prev.some(s => s.streamId === stream.streamId);
-        if (exists) {
-          console.log('[useVonageSession] Stream already exists:', stream.streamId);
-          return prev;
-        }
         
-        console.log('[useVonageSession] New stream added:', stream.streamId);
-        return [...prev, stream];
-      });
-      
-      // Update participant with stream
-      setParticipants(prev => prev.map(p => 
-        p.id === stream.connection.connectionId 
-          ? { ...p, stream }
-          : p
-      ));
-    });
-
-    newSession.on('streamDestroyed', (event: OT.StreamEvent) => {
-      console.log('[useVonageSession] Stream destroyed:', event);
-      const streamId = event.stream?.streamId;
-      if (streamId) {
-        setStreams(prev => prev.filter(s => s.streamId !== streamId));
-        
-        // Remove stream from participant
+        // Update participant with stream
         setParticipants(prev => prev.map(p => 
-          p.stream?.streamId === streamId 
-            ? { ...p, stream: undefined }
+          p.id === stream.connection.connectionId 
+            ? { ...p, stream }
             : p
         ));
-      }
-    });
+      });
 
-    newSession.on('sessionReconnecting', () => {
-      console.log('[useVonageSession] Session reconnecting...');
-      setStatus('connecting');
-    });
-
-    newSession.on('sessionReconnected', () => {
-      console.log('[useVonageSession] Session reconnected');
-      setStatus('connected');
-    });
-
-    // Add error handling for session
-    newSession.on('exception', (event: any) => {
-      console.error('[useVonageSession] Session exception:', event);
-      setError(`セッションエラー: ${event.message || 'Unknown error'}`);
-    });
-
-    // Connect to session
-    console.log('📋 Step 3: Connecting to Vonage Session');
-    console.log('  - Using API Key:', apiKey.substring(0, 8) + '...');
-    console.log('  - Using Session ID:', sessionId.substring(0, 20) + '...');
-    console.log('  - Using Token Length:', token.length);
-    
-    newSession.connect(token, (connectError) => {
-      if (connectError) {
-        console.error('❌ CONNECTION FAILED');
-        console.error('  - Error Code:', connectError.code);
-        console.error('  - Error Message:', connectError.message);
-        console.error('  - Full Error:', connectError);
-        console.error('  - API Key Used:', apiKey.substring(0, 8) + '...');
-        console.error('  - Session ID Used:', sessionId.substring(0, 20) + '...');
-        console.error('  - Token Used:', token.substring(0, 20) + '...');
-        
-        setStatus('error');
-        
-        // Provide more user-friendly error messages
-        let errorMessage = '接続に失敗しました';
-        switch (connectError.code) {
-          case 1004:
-            errorMessage = 'APIキーが無効です。バックエンドのVonage設定を確認してください。';
-            console.error('  🔧 Diagnosis: Invalid API Key - check backend Vonage configuration');
-            break;
-          case 1005:
-            errorMessage = 'セッションIDが無効です。新しいセッションを作成してください。';
-            console.error('  🔧 Diagnosis: Invalid Session ID - session may not exist');
-            break;
-          case 1006:
-            errorMessage = 'トークンが無効または期限切れです。再度参加してください。';
-            console.error('  🔧 Diagnosis: Invalid or expired token');
-            break;
-          case 1026:
-            errorMessage = 'ネットワーク接続を確認してください。';
-            console.error('  🔧 Diagnosis: Network connectivity issue');
-            break;
-          case 1013:
-            errorMessage = 'セッションが見つかりません。正しいミーティングIDを確認してください。';
-            console.error('  🔧 Diagnosis: Session not found');
-            break;
-          case 1014:
-            errorMessage = 'セッションの参加者数が上限に達しています。';
-            console.error('  🔧 Diagnosis: Session capacity exceeded');
-            break;
-          default:
-            errorMessage = `接続エラー (${connectError.code}): ${connectError.message}`;
-            console.error('  🔧 Diagnosis: Unknown error');
-        }
-        
-        setError(errorMessage);
-      } else {
-        console.log('✅ CONNECTION SUCCESSFUL');
-        console.log('  - Session connected successfully');
-        console.log('  - Session state:', newSession.isConnected() ? 'Connected' : 'Not connected');
-        console.log('  - Connection ID:', newSession.connection?.connectionId || 'Not available');
-        console.log('  - Waiting for sessionConnected event...');
-      }
-    });
-
-        // Cleanup
-        return () => {
-          console.log('[useVonageSession] Cleaning up session...');
+      newSession.on('streamDestroyed', (event: any) => {
+        console.log('[useVonageSession] Stream destroyed:', event);
+        const streamId = event.stream?.streamId;
+        if (streamId) {
+          setStreams(prev => prev.filter(s => s.streamId !== streamId));
           
-          if (sessionRef.current) {
-            try {
-              sessionRef.current.disconnect();
-            } catch (e) {
-              console.warn('[useVonageSession] Error disconnecting session:', e);
-            }
-            sessionRef.current = null;
+          // Remove stream from participant
+          setParticipants(prev => prev.map(p => 
+            p.stream?.streamId === streamId 
+              ? { ...p, stream: undefined }
+              : p
+          ));
+        }
+      });
+
+      newSession.on('sessionReconnecting', () => {
+        console.log('[useVonageSession] Session reconnecting...');
+        setStatus('connecting');
+      });
+
+      newSession.on('sessionReconnected', () => {
+        console.log('[useVonageSession] Session reconnected');
+        setStatus('connected');
+      });
+
+      // Add error handling for session
+      newSession.on('exception', (event: any) => {
+        console.error('[useVonageSession] Session exception:', event);
+        setError(`セッションエラー: ${event.message || 'Unknown error'}`);
+      });
+
+      // Connect to session
+      console.log('📋 Step 3: Connecting to Vonage Session');
+      console.log('  - Using API Key:', apiKey.substring(0, 8) + '...');
+      console.log('  - Using Session ID:', sessionId.substring(0, 20) + '...');
+      console.log('  - Using Token Length:', token.length);
+      
+      newSession.connect(token, (connectError: any) => {
+        if (connectError) {
+          console.error('❌ CONNECTION FAILED');
+          console.error('  - Error Code:', connectError.code);
+          console.error('  - Error Message:', connectError.message);
+          console.error('  - Full Error:', connectError);
+          console.error('  - API Key Used:', apiKey.substring(0, 8) + '...');
+          console.error('  - Session ID Used:', sessionId.substring(0, 20) + '...');
+          console.error('  - Token Used:', token.substring(0, 20) + '...');
+          
+          setStatus('error');
+          
+          // Provide more user-friendly error messages
+          let errorMessage = '接続に失敗しました';
+          switch (connectError.code) {
+            case 1004:
+              errorMessage = 'APIキーが無効です。バックエンドのVonage設定を確認してください。';
+              console.error('  🔧 Diagnosis: Invalid API Key - check backend Vonage configuration');
+              break;
+            case 1005:
+              errorMessage = 'セッションIDが無効です。新しいセッションを作成してください。';
+              console.error('  🔧 Diagnosis: Invalid Session ID - session may not exist');
+              break;
+            case 1006:
+              errorMessage = 'トークンが無効または期限切れです。再度参加してください。';
+              console.error('  🔧 Diagnosis: Invalid or expired token');
+              break;
+            case 1026:
+              errorMessage = 'ネットワーク接続を確認してください。';
+              console.error('  🔧 Diagnosis: Network connectivity issue');
+              break;
+            case 1013:
+              errorMessage = 'セッションが見つかりません。正しいミーティングIDを確認してください。';
+              console.error('  🔧 Diagnosis: Session not found');
+              break;
+            case 1014:
+              errorMessage = 'セッションの参加者数が上限に達しています。';
+              console.error('  🔧 Diagnosis: Session capacity exceeded');
+              break;
+            default:
+              errorMessage = `接続エラー (${connectError.code}): ${connectError.message}`;
+              console.error('  🔧 Diagnosis: Unknown error');
           }
           
-          setSession(null);
-          setParticipants([]);
-          setStreams([]);
-        };
-      };
-  };
+          setError(errorMessage);
+        } else {
+          console.log('✅ CONNECTION SUCCESSFUL');
+          console.log('  - Session connected successfully');
+          console.log('  - Session state:', newSession.isConnected() ? 'Connected' : 'Not connected');
+          console.log('  - Connection ID:', newSession.connection?.connectionId || 'Not available');
+          console.log('  - Waiting for sessionConnected event...');
+        }
+      });
+    };
+
+    // Cleanup
+    return () => {
+      console.log('[useVonageSession] Cleaning up session...');
+      
+      if (sessionRef.current) {
+        try {
+          sessionRef.current.disconnect();
+        } catch (e) {
+          console.warn('[useVonageSession] Error disconnecting session:', e);
+        }
+        sessionRef.current = null;
+      }
+      
+      setSession(null);
+      setParticipants([]);
+      setStreams([]);
+    };
+  }, [apiKey, sessionId, token, enabled]);
 
   const disconnect = useCallback(() => {
     if (sessionRef.current) {
