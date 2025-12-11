@@ -183,15 +183,15 @@ class SessionController:
                         session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial, websocket
                     ))
                     
-                    # Also trigger analysis for partial results if text is substantial
-                    if is_partial and len(transcript.strip()) >= 10:  # Lower threshold for faster response
+                    # Trigger analysis for ALL results (partial and final) for maximum responsiveness
+                    if len(transcript.strip()) >= 3:  # Very low threshold for immediate response
                         # Use the same result_id for partial analysis to ensure single line
                         # Create a consistent partial index based on result_id
                         partial_index = hash(result_id) % 100000  # Consistent index for same result_id
                         
-                        # Trigger partial analysis
+                        # Trigger immediate analysis (both partial and final)
                         asyncio.create_task(self._classify_and_send_realtime(
-                            websocket, session_data["meeting_id"], transcript, speaker_label, partial_index, is_partial=True
+                            websocket, session_data["meeting_id"], transcript, speaker_label, partial_index, is_partial=is_partial
                         ))
                         
                 except Exception as e:
@@ -483,10 +483,10 @@ class SessionController:
         return session_data["speaker_labels"][raw_label]
 
     async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool = False) -> None:
-        """Perform real-time classification like poc_satomin."""
-        # Skip short texts
+        """Perform ultra-fast real-time classification."""
+        # Skip very short texts
         text_stripped = text.strip()
-        if len(text_stripped) < 10:
+        if len(text_stripped) < 3:
             return
             
         session_data = self.session_data.get(meeting_id)
@@ -496,10 +496,10 @@ class SessionController:
         # Skip meta information
         if text.startswith("Agenda topic:") or text.startswith("Discussion: Confirming action items for"):
             return
-            
-        # Step 1: Quick keyword-based classification
-        category_quick = _guess_category(text)
-        alignment_quick = self._calculate_alignment(text, session_data["agenda_text"])
+        
+        # Ultra-fast keyword-based classification (no complex processing)
+        category_quick = self._fast_guess_category(text)
+        alignment_quick = self._fast_calculate_alignment(text, session_data["agenda_text"])
         
         result_quick = {
             "index": index,
@@ -508,11 +508,11 @@ class SessionController:
             "category": category_quick,
             "alignment": alignment_quick,
             "method": "keyword",
-            "is_final": False,
+            "is_final": not is_partial,
             "is_partial": is_partial
         }
-        
-        # Send quick result immediately
+
+        # Send result immediately without any delay
         try:
             await websocket.send_json({
                 "type": "realtime_classification",
@@ -521,8 +521,8 @@ class SessionController:
         except Exception as e:
             self.logger.error(f"Failed to send realtime classification: {e}")
         
-        # Step 2: Background Bedrock analysis (only for non-partial results to avoid overload)
-        if not is_partial:
+        # Step 2: Background Bedrock analysis (only for final results with substantial text)
+        if not is_partial and len(text_stripped) >= 15:
             task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
             session_data["pending_bedrock_tasks"].add(task)
             task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
@@ -602,6 +602,44 @@ class SessionController:
         
         except Exception as e:
             self.logger.error(f"Bedrock分析失敗: {e}")
+
+    def _fast_guess_category(self, text: str) -> str:
+        """Ultra-fast category guessing with minimal processing."""
+        text_lower = text.lower()
+        
+        # Simple keyword matching
+        if any(word in text_lower for word in ["提案", "案", "アイデア", "考え"]):
+            return "提案"
+        elif any(word in text_lower for word in ["質問", "？", "?"]):
+            return "質問"
+        elif any(word in text_lower for word in ["反対", "問題", "課題", "懸念"]):
+            return "反対"
+        elif any(word in text_lower for word in ["賛成", "同意", "いいね", "良い"]):
+            return "賛成"
+        else:
+            return "コメント"
+    
+    def _fast_calculate_alignment(self, text: str, agenda_text: str) -> int:
+        """Ultra-fast alignment calculation."""
+        if not agenda_text or len(text) < 5:
+            return 50
+        
+        # Simple word matching
+        agenda_words = set(agenda_text.lower().split())
+        text_words = set(text.lower().split())
+        
+        if not agenda_words:
+            return 50
+        
+        # Calculate simple overlap
+        overlap = len(agenda_words & text_words)
+        total = len(agenda_words)
+        
+        if overlap == 0:
+            return 30
+        
+        alignment = min(100, int(30 + (overlap / total) * 70))
+        return alignment
 
     def _calculate_alignment(self, text: str, agenda_text: str) -> int:
         """Calculate alignment with agenda."""

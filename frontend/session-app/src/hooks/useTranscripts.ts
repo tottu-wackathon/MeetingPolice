@@ -58,13 +58,11 @@ export function useTranscripts(
         };
         
         ws.onmessage = (event) => {
-          console.log('[useTranscripts] Received message:', event.data);
           try {
             const data = JSON.parse(event.data);
-            console.log('[useTranscripts] Parsed data:', data);
             
             if (data?.type === 'realtime_classification') {
-              console.log('[useTranscripts] Classification payload:', data.payload);
+              // Immediate processing for real-time classification
               onClassification?.(data.payload);
               return;
             }
@@ -233,7 +231,7 @@ export function useTranscripts(
         }
         
         const source = audioContext.createMediaStreamSource(mediaStream);
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        processor = audioContext.createScriptProcessor(2048, 1, 1); // Smaller buffer for faster response
         
         source.connect(processor);
         processor.connect(audioContext.destination);
