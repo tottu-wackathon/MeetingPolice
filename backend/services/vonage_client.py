@@ -3,14 +3,16 @@ from __future__ import annotations
 import time
 from typing import Any
 import logging
+from pathlib import Path
 
 try:
-    from opentok import OpenTok, MediaModes
-    OPENTOK_AVAILABLE = True
+    import vonage
+    from vonage.video import Video
+    VONAGE_AVAILABLE = True
 except ImportError:
-    OPENTOK_AVAILABLE = False
-    OpenTok = None
-    MediaModes = None
+    VONAGE_AVAILABLE = False
+    vonage = None
+    Video = None
 
 from backend.config import get_settings
 
@@ -23,26 +25,32 @@ class VonageClient:
         self.private_key_path = self.settings.vonage_private_key_path
         self.logger = logging.getLogger(__name__)
         self.client = None
+        self.video_client = None
         self.is_mock_mode = False
         
-        # Use JWT authentication only
-        if OPENTOK_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
+        # Initialize Vonage Video API with JWT authentication
+        if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
-                # Initialize OpenTok client with API key (still needed for session creation)
-                self.client = OpenTok(self.api_key, self.api_key)  # Use API key as both key and secret for JWT mode
+                # Initialize Vonage client with JWT authentication
+                self.client = vonage.Client(
+                    application_id=self.application_id,
+                    private_key=self.private_key_content
+                )
+                self.video_client = Video(self.client)
                 self.auth_method = "jwt"
                 self.is_mock_mode = False
-                self.logger.info("✅ Vonage Video API initialized with JWT authentication")
+                self.logger.info("✅ Vonage Video API initialized with Python Server SDK and JWT authentication")
             except Exception as e:
-                self.logger.warning(f"JWT authentication failed: {e}")
+                self.logger.warning(f"Vonage Video API initialization failed: {e}")
                 self.logger.info("Falling back to mock mode for development")
                 self.client = None
+                self.video_client = None
                 self.is_mock_mode = True
                 self.auth_method = "mock"
         else:
             missing = []
-            if not OPENTOK_AVAILABLE:
-                missing.append("OpenTok SDK")
+            if not VONAGE_AVAILABLE:
+                missing.append("Vonage SDK")
             if not self.application_id:
                 missing.append("VONAGE_APPLICATION_ID")
             if not self.api_key:
@@ -57,7 +65,6 @@ class VonageClient:
     def _load_private_key(self) -> bool:
         """Load private key from file for JWT authentication."""
         try:
-            from pathlib import Path
             key_path = Path(self.private_key_path)
             if key_path.exists():
                 self.private_key_content = key_path.read_text(encoding='utf-8')
@@ -71,11 +78,11 @@ class VonageClient:
 
     def create_session(self, meeting_id: str) -> dict[str, Any]:
         self.logger.info("🔄 Creating Vonage session for meeting_id=%s", meeting_id)
-        self.logger.info("📊 Vonage client state: is_mock_mode=%s, has_client=%s, auth_method=%s", 
-                         self.is_mock_mode, bool(self.client), getattr(self, 'auth_method', 'unknown'))
+        self.logger.info("📊 Vonage client state: is_mock_mode=%s, has_video_client=%s, auth_method=%s", 
+                         self.is_mock_mode, bool(self.video_client), getattr(self, 'auth_method', 'unknown'))
         
-        if not self.client or self.is_mock_mode:
-            # Generate a proper mock session ID that looks like a real OpenTok session ID
+        if not self.video_client or self.is_mock_mode:
+            # Generate a proper mock session ID that looks like a real Vonage session ID
             import uuid
             mock_session_id = f"1_MX40{abs(hash(meeting_id)) % 100000000}~-1~{uuid.uuid4().hex[:20]}"
             self.logger.warning("⚠️ Vonage Video client in mock mode; returning mock session_id=%s", mock_session_id)
@@ -83,10 +90,17 @@ class VonageClient:
             return {"session_id": mock_session_id}
         
         try:
-            # Create session with OpenTok SDK
-            self.logger.info("🚀 Creating real Vonage session with OpenTok SDK...")
-            session = self.client.create_session(media_mode=MediaModes.routed)
-            session_id = session.session_id
+            # Create session with Vonage Video Python Server SDK
+            self.logger.info("🚀 Creating real Vonage session with Python Server SDK...")
+            
+            # Create session options
+            session_options = {
+                'media_mode': 'routed',  # Use routed mode for better scalability
+                'archive_mode': 'manual'  # Manual archive mode
+            }
+            
+            response = self.video_client.create_session(session_options)
+            session_id = response['session_id']
             
             self.logger.info("✅ Real Vonage session created successfully!")
             self.logger.info("📋 Session details: session_id=%s, meeting_id=%s, media_mode=routed", session_id, meeting_id)
@@ -104,8 +118,8 @@ class VonageClient:
     def generate_token(self, session_id: str, ttl_seconds: int = 300) -> str:
         self.logger.info("🎫 Generating token for session_id=%s, ttl=%d seconds", session_id[:20] + "...", ttl_seconds)
         
-        if not self.client or self.is_mock_mode:
-            # Generate a proper mock token that looks like a real OpenTok token
+        if not self.video_client or self.is_mock_mode:
+            # Generate a proper mock token that looks like a real Vonage token
             import base64
             import json
             mock_token_data = {
@@ -122,14 +136,22 @@ class VonageClient:
             return token
         
         try:
-            # Generate token with OpenTok SDK
+            # Generate token with Vonage Video Python Server SDK
             expire_time = int(time.time()) + ttl_seconds
-            token = self.client.generate_token(session_id, expire_time=expire_time)
             
-            self.logger.info("Vonage token generated session_id=%s", session_id)
+            token_options = {
+                'role': 'publisher',  # Can publish and subscribe
+                'expire_time': expire_time,
+                'data': f'meeting_session_{session_id[:8]}'  # Optional connection data
+            }
+            
+            token = self.video_client.generate_token(session_id, token_options)
+            
+            self.logger.info("✅ Vonage token generated successfully for session_id=%s", session_id[:20] + "...")
             return token
         except Exception as exc:
-            self.logger.exception("Vonage token generation failed session_id=%s", session_id)
+            self.logger.exception("❌ Vonage token generation failed for session_id=%s", session_id)
+            self.logger.error("🔧 Error details: %s", str(exc))
             # Fallback to mock mode
             self.is_mock_mode = True
             import base64
@@ -143,5 +165,5 @@ class VonageClient:
             }
             mock_token = base64.b64encode(json.dumps(mock_token_data).encode()).decode()
             token = f"T1=={mock_token}"
-            self.logger.info("Falling back to mock token for session_id=%s", session_id)
+            self.logger.warning("🔄 Falling back to mock token for session_id=%s", session_id)
             return token

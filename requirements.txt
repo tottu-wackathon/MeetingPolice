@@ -11,5 +11,5 @@ pytest
 pytest-asyncio
 pydantic-settings
 python-multipart
-opentok==3.13.0
+vonage==3.99.4
 requests==2.31.0
