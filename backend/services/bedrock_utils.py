@@ -340,4 +340,4 @@ def _guess_category(text: str) -> str:
     for label, keywords in cues:
         if any(keyword in text for keyword in keywords) or any(keyword in lowered for keyword in keywords):
             return label
-    return "コメント"  # デフォルトを雑談から変更
+    return "無関係な雑談"  # デフォルトは無関係な雑談

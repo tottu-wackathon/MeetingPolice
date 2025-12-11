@@ -276,6 +276,9 @@ class TranscriptionHandler:
         transcript = result.get("transcript", "").strip()
         is_partial = result.get("is_partial", False)
         
+        # 誤字修正を適用
+        transcript = self._apply_typo_corrections(transcript)
+        
         if not transcript:
             self.logger.debug("空の音声認識結果、スキップ")
             return
@@ -542,3 +545,40 @@ class TranscriptionHandler:
         }
 
     # _is_unknown_labelメソッドはspeaker_manager.pyに統合済み
+    def _apply_typo_corrections(self, text: str) -> str:
+        """
+        音声認識の誤字を修正する
+        """
+        if not text:
+            return text
+        
+        # 誤字修正辞書
+        corrections = {
+            # ワッカソン関連
+            "マッカさん": "ワッカソン",
+            "マッカ": "ワッカ",
+            "まっか": "ワッカ",
+            "わっか": "ワッカ",
+            "ワッカさん": "ワッカソン",
+            
+            # その他の一般的な誤字
+            "ミーティング": "ミーティング",  # 既に正しい場合はそのまま
+            "みーてぃんぐ": "ミーティング",
+            "会議": "会議",  # 既に正しい場合はそのまま
+            
+            # 業務関連用語
+            "プロジェクト": "プロジェクト",
+            "ぷろじぇくと": "プロジェクト",
+            "タスク": "タスク",
+            "たすく": "タスク",
+        }
+        
+        corrected_text = text
+        for typo, correction in corrections.items():
+            corrected_text = corrected_text.replace(typo, correction)
+        
+        # 修正があった場合はログ出力
+        if corrected_text != text:
+            self.logger.info(f"🔧 誤字修正: '{text}' → '{corrected_text}'")
+        
+        return corrected_text

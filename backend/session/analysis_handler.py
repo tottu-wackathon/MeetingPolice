@@ -65,6 +65,12 @@ class AnalysisHandler:
         # Step 1: キーワードベースの簡易分類（即座に返す）
         category_quick = _guess_category(text)
         alignment_quick = self.calculate_alignment(text, session_data["agenda_text"])
+        
+        # コメント・相槌の場合は一致度を50%に設定
+        if category_quick == "コメント":
+            alignment_quick = 50  # コメントは50%
+        elif category_quick == "無関係な雑談":
+            alignment_quick = 5  # 無関係な雑談は5%
 
         result_quick = {
             "index": index,
@@ -194,6 +200,10 @@ class AnalysisHandler:
         if not agenda_text or not agenda_text.strip():
             return 50  # アジェンダがなければデフォルト50%
         
+        # 接続詞・繋ぎ言葉は中程度の一致度を返す
+        if self._is_conjunction_or_filler(text.strip()):
+            return 50  # 接続詞・繋ぎ言葉は50%
+        
         # メタ情報の発言は一致度を計算しない
         meta_keywords = ["議題", "タイトル", "所要時間", "発表者", "検討事項", "目的", "背景"]
         if any(keyword in text for keyword in meta_keywords):
@@ -225,7 +235,7 @@ class AnalysisHandler:
         
         # 一致率を計算（0-100%）
         if matched_count == 0:
-            return 30  # 全く一致しなくても最低30%
+            return 10  # 全く一致しない場合は10%
             
         # マッチ率に基づいて計算（より寛容に）
         match_ratio = matched_count / len(agenda_keywords)
