@@ -40,6 +40,14 @@ export function useVonageSession({
     console.log('  - Session ID:', sessionId ? `${sessionId.substring(0, 20)}...` : 'Not provided');
     console.log('  - Token:', token ? `${token.substring(0, 20)}... (length: ${token.length})` : 'Not provided');
     console.log('  - OpenTok SDK Available:', !!window.OT);
+    console.log('  - window.OT methods:', window.OT ? Object.keys(window.OT).slice(0, 10) : 'Not available');
+    console.log('  - Document ready state:', document.readyState);
+    
+    // Test if we can access OT methods
+    if (window.OT) {
+      console.log('  - OT.initSession available:', typeof window.OT.initSession);
+      console.log('  - OT version:', window.OT.VERSION || 'Unknown');
+    }
   }, [apiKey, sessionId, token, enabled]);
 
   // Initialize session
@@ -82,31 +90,80 @@ export function useVonageSession({
       return;
     }
 
-    const OT = window.OT;
-    
-    if (!OT?.initSession) {
-      console.error('❌ VONAGE SDK NOT AVAILABLE');
-      console.error('  - window.OT:', !!window.OT);
-      console.error('  - OT.initSession:', !!OT?.initSession);
-      console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
-      setStatus('error');
-      setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
-      return;
-    }
+    // Wait for Vonage SDK to load if not immediately available
+    const waitForVonageSDK = () => {
+      return new Promise<void>((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds max wait
+        
+        const checkSDK = () => {
+          attempts++;
+          console.log(`📋 Checking Vonage SDK availability (attempt ${attempts}/${maxAttempts})`);
+          
+          if (window.OT?.initSession) {
+            console.log('✅ Vonage SDK is available');
+            resolve();
+            return;
+          }
+          
+          if (attempts >= maxAttempts) {
+            console.error('❌ Vonage SDK failed to load after maximum attempts');
+            reject(new Error('Vonage SDK timeout'));
+            return;
+          }
+          
+          setTimeout(checkSDK, 100);
+        };
+        
+        checkSDK();
+      });
+    };
 
-    console.log('📋 Step 1: Initializing Vonage Session');
-    console.log('  - API Key:', apiKey.substring(0, 8) + '...');
-    console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
-    console.log('  - Token Length:', token.length);
-    console.log('  - Token Type:', token.startsWith('eyJ') ? 'JWT' : 'Other');
-    console.log('  - Session ID Type:', sessionId.startsWith('1_MX') || sessionId.startsWith('2_MX') ? 'Vonage' : 'Other');
-    
-    setStatus('connecting');
-    setError(null);
+    // Wait for SDK and then proceed
+    waitForVonageSDK()
+      .then(() => {
+        const OT = window.OT;
+        
+        if (!OT?.initSession) {
+          console.error('❌ VONAGE SDK NOT AVAILABLE AFTER WAIT');
+          console.error('  - window.OT:', !!window.OT);
+          console.error('  - OT.initSession:', !!OT?.initSession);
+          console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
+          setStatus('error');
+          setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
+          return;
+        }
+
+        initializeVonageSession(OT);
+      })
+      .catch((error) => {
+        console.error('❌ VONAGE SDK LOADING FAILED:', error);
+        setStatus('error');
+        setError('Vonage SDK の読み込みがタイムアウトしました。ページを再読み込みしてください。');
+      });
+  }, [apiKey, sessionId, token, enabled]);
+
+  const initializeVonageSession = (OT: any) => {
+
+        console.log('📋 Step 1: Initializing Vonage Session');
+        console.log('  - API Key:', apiKey.substring(0, 8) + '...');
+        console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
+        console.log('  - Token Length:', token.length);
+        console.log('  - Token Type:', token.startsWith('eyJ') ? 'JWT' : 'Other');
+        console.log('  - Session ID Type:', sessionId.startsWith('1_MX') || sessionId.startsWith('2_MX') ? 'Vonage' : 'Other');
+        
+        setStatus('connecting');
+        setError(null);
 
     console.log('📋 Step 2: Creating OT Session Object');
+    console.log('  - Calling OT.initSession with:');
+    console.log('    * API Key:', apiKey.substring(0, 8) + '...');
+    console.log('    * Session ID:', sessionId.substring(0, 20) + '...');
+    
     const newSession = OT.initSession(apiKey, sessionId);
     console.log('  ✅ OT.initSession() completed');
+    console.log('  - Session object created:', !!newSession);
+    console.log('  - Session methods available:', newSession ? Object.keys(newSession).slice(0, 10) : 'None');
     
     sessionRef.current = newSession;
     setSession(newSession);
@@ -281,28 +338,31 @@ export function useVonageSession({
       } else {
         console.log('✅ CONNECTION SUCCESSFUL');
         console.log('  - Session connected successfully');
+        console.log('  - Session state:', newSession.isConnected() ? 'Connected' : 'Not connected');
+        console.log('  - Connection ID:', newSession.connection?.connectionId || 'Not available');
         console.log('  - Waiting for sessionConnected event...');
       }
     });
 
-    // Cleanup
-    return () => {
-      console.log('[useVonageSession] Cleaning up session...');
-      
-      if (sessionRef.current) {
-        try {
-          sessionRef.current.disconnect();
-        } catch (e) {
-          console.warn('[useVonageSession] Error disconnecting session:', e);
-        }
-        sessionRef.current = null;
-      }
-      
-      setSession(null);
-      setParticipants([]);
-      setStreams([]);
-    };
-  }, [apiKey, sessionId, token, enabled]);
+        // Cleanup
+        return () => {
+          console.log('[useVonageSession] Cleaning up session...');
+          
+          if (sessionRef.current) {
+            try {
+              sessionRef.current.disconnect();
+            } catch (e) {
+              console.warn('[useVonageSession] Error disconnecting session:', e);
+            }
+            sessionRef.current = null;
+          }
+          
+          setSession(null);
+          setParticipants([]);
+          setStreams([]);
+        };
+      };
+  };
 
   const disconnect = useCallback(() => {
     if (sessionRef.current) {
