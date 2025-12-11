@@ -24,7 +24,7 @@ export function ResultPage() {
         const data = location.state as ResultData | undefined;
         if (!data) {
             // データがない場合は元のページに戻る
-            navigate('/poc_satomin');
+            navigate('/');
             return;
         }
         setResultData(data);
@@ -297,7 +297,7 @@ export function ResultPage() {
                 <div style={{ textAlign: 'center' }}>
                     <button
                         type="button"
-                        onClick={() => navigate('/poc_satomin')}
+                        onClick={() => navigate('/')}
                         style={{
                             padding: '12px 32px',
                             fontSize: '1.1em',

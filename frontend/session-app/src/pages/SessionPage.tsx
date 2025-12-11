@@ -14,6 +14,7 @@ export function SessionPage() {
     leaveMeeting,
     isMuted,
   } = useMeetingSession();
+  const sessionStartRef = useRef<number | null>(null);
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
     Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean }>
@@ -21,6 +22,7 @@ export function SessionPage() {
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
+  const [agendaPreview, setAgendaPreview] = useState<string>('');
   
   // 🔍 CONNECTION HEALTH MONITORING
   const [connectionHealth, setConnectionHealth] = useState({
@@ -161,6 +163,14 @@ export function SessionPage() {
     const file = event.target.files?.[0];
     if (file && file.type === 'text/plain') {
       setSelectedAgenda(file);
+      // 選択したアジェンダをローカルでプレビュー用に保持
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setAgendaPreview(reader.result);
+        }
+      };
+      reader.readAsText(file);
     } else if (file) {
       alert('テキストファイル(.txt)を選択してください');
       event.target.value = '';
@@ -251,6 +261,33 @@ export function SessionPage() {
     void autoJoin();
   }, [meetingId, joinMeeting, session, status]);
 
+  // セッション開始時刻を記録
+  useEffect(() => {
+    if (session && !sessionStartRef.current) {
+      sessionStartRef.current = Date.now();
+    }
+  }, [session]);
+
+  const buildResultData = () => {
+    const validFinal = realtimeClassifications.filter(item => item.text.length >= 10 && item.is_final === true);
+    const avgAlignment = validFinal.length
+      ? Math.round(validFinal.reduce((sum, item) => sum + item.alignment, 0) / validFinal.length)
+      : 100;
+    const speakerCounts: Record<string, number> = {};
+    speakerStats.forEach(({ speaker, count }) => {
+      speakerCounts[speaker] = count;
+    });
+    const elapsedSeconds = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : 0;
+    return {
+      agendaText: agendaPreview,
+      elapsedSeconds,
+      avgAlignment,
+      totalItems: transcripts.length || validFinal.length,
+      speakerCounts,
+      speakerNames,
+    };
+  };
+
   const joinSection = (
     <section className="panel join-card">
       <div className="panel-header">
@@ -314,8 +351,9 @@ export function SessionPage() {
   );
 
   const handleLeave = () => {
+    const resultData = buildResultData();
     leaveMeeting();
-    navigate('/');
+    navigate('/result', { state: resultData });
   };
 
   // poc_satominと同じ音声アラート機能
