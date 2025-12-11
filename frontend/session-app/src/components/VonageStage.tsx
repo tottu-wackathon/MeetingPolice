@@ -69,7 +69,12 @@ export function VonageStage({
   };
 
   useEffect(() => {
-    console.log('[VonageStage] useEffect triggered', { enabled, apiKey: apiKey?.substring(0, 8), sessionId: sessionId?.substring(0, 20), token: token?.substring(0, 20) });
+    console.log('[VonageStage] useEffect triggered', { 
+      enabled, 
+      apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
+      sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined', 
+      token: token ? token.substring(0, 20) + '...' : 'undefined' 
+    });
     
     if (!enabled) {
       console.log('[VonageStage] Not enabled, setting idle');
@@ -99,7 +104,10 @@ export function VonageStage({
     setError(null);
 
     try {
-      console.log('[VonageStage] Creating session with', { apiKey: apiKey.substring(0, 8), sessionId: sessionId.substring(0, 20) });
+      console.log('[VonageStage] Creating session with', { 
+        apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'undefined', 
+        sessionId: sessionId ? sessionId.substring(0, 20) + '...' : 'undefined' 
+      });
       const session = OTClient.initSession(apiKey, sessionId);
       sessionRef.current = session;
       console.log('[VonageStage] Session created successfully');
@@ -216,7 +224,7 @@ export function VonageStage({
       );
       publisherRef.current = publisher;
 
-      console.log('[VonageStage] Attempting to connect with token:', token.substring(0, 20) + '...');
+      console.log('[VonageStage] Attempting to connect with token:', token ? token.substring(0, 20) + '...' : 'undefined');
       session.connect(token, (err: any) => {
         if (err) {
           console.error('[VonageStage] Connection failed:', err);
