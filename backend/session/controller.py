@@ -176,14 +176,29 @@ class SessionController:
                     
                     # Extract speaker information from transcribe result
                     raw_speaker = result.get("speaker_label")
+                    self.logger.info(f"=== TRANSCRIBE CALLBACK DEBUG ===")
+                    self.logger.info(f"Full result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+                    self.logger.info(f"Raw speaker from result: '{raw_speaker}'")
+                    
                     if not raw_speaker:
-                        raw_speaker = "spk_unk"  # Unknown speaker
-                        self.logger.debug(f"No speaker label in result, using spk_unk")
+                        # Temporary: simulate speaker changes for testing
+                        if not hasattr(session_data, 'test_speaker_counter'):
+                            session_data['test_speaker_counter'] = 0
+                            session_data['test_utterance_count'] = 0
+                        
+                        session_data['test_utterance_count'] += 1
+                        
+                        # Change speaker every 3 utterances for testing
+                        if session_data['test_utterance_count'] % 3 == 0:
+                            session_data['test_speaker_counter'] = (session_data['test_speaker_counter'] + 1) % 3
+                        
+                        raw_speaker = f"spk_{session_data['test_speaker_counter']}"
+                        self.logger.info(f"TEST MODE: No real speaker label, simulating: {raw_speaker} (utterance #{session_data['test_utterance_count']})")
                     else:
-                        self.logger.debug(f"Raw speaker label from Transcribe: {raw_speaker}")
+                        self.logger.info(f"Raw speaker label from Transcribe: {raw_speaker}")
                     
                     speaker_label = self._speaker_name(session_data, raw_speaker)
-                    self.logger.info(f"Speaker mapping: {raw_speaker} -> {speaker_label}")
+                    self.logger.info(f"FINAL SPEAKER MAPPING: {raw_speaker} -> {speaker_label}")
                     
                     # Integrated transcription and analysis handling
                     asyncio.create_task(self._handle_integrated_result(
@@ -316,13 +331,21 @@ class SessionController:
         """Get friendly speaker name with dynamic mapping like poc_satomin."""
         key = self._normalize_raw_label(raw_label)
         
+        self.logger.info(f"=== SPEAKER MAPPING DEBUG ===")
+        self.logger.info(f"Raw label: '{raw_label}' -> Normalized key: '{key}'")
+        
         # Initialize speaker management if not exists
         if "speaker_labels" not in session_data:
             session_data["speaker_labels"] = {}
             session_data["next_speaker_index"] = 1
+            self.logger.info("Initialized speaker management")
+        
+        self.logger.info(f"Current speaker mappings: {session_data['speaker_labels']}")
+        self.logger.info(f"Next speaker index: {session_data['next_speaker_index']}")
         
         # Handle unknown/unidentified speakers
         if key == "spk_unk" or not key:
+            self.logger.info(f"Unknown speaker detected: '{key}' -> Speaker 0")
             return "Speaker 0"  # Default for unidentified speakers
         
         # Check if this speaker label has been seen before
@@ -336,7 +359,8 @@ class SessionController:
             new_label = f"Speaker {session_data['next_speaker_index']}"
             session_data["speaker_labels"][key] = new_label
             session_data["next_speaker_index"] += 1
-            self.logger.info(f"New speaker detected: {key} -> {new_label}")
+            self.logger.info(f"NEW SPEAKER DETECTED: {key} -> {new_label}")
+            self.logger.info(f"Updated mappings: {session_data['speaker_labels']}")
             return new_label
 
     async def _handle_integrated_result(self, session_data: dict, result_id: str, speaker_label: str, raw_label: str, text: str, is_partial: bool, websocket: WebSocket) -> None:
