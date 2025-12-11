@@ -3,10 +3,18 @@ import type { MeetingSession, Participant } from '../types';
 import { validateMeetingId, joinMeeting } from '../services/api';
 
 export function useMeetingSession() {
+  console.log('🎯 useMeetingSession hook initializing...');
+  
   const envApiKey = import.meta.env.VITE_VONAGE_APP_ID as string | undefined;
   const envSessionId = import.meta.env.VITE_VONAGE_SESSION_ID as string | undefined;
   const envToken = import.meta.env.VITE_VONAGE_TOKEN as string | undefined;
   const hasEnvSession = Boolean(envApiKey && envSessionId && envToken);
+  
+  console.log('🎯 useMeetingSession environment check:');
+  console.log('  - Has env API key:', !!envApiKey);
+  console.log('  - Has env session ID:', !!envSessionId);
+  console.log('  - Has env token:', !!envToken);
+  console.log('  - Has env session:', hasEnvSession);
 
   const [session, setSession] = useState<MeetingSession | null>(null);
   const [isMuted, setIsMuted] = useState(false);

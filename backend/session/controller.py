@@ -103,6 +103,15 @@ class SessionController:
         self.logger.info("📋 Step 5: Building response payload")
         result = self._build_session_payload(meeting, session_id, token)
         self.logger.info("✅ CREATE MEETING COMPLETED: %s", meeting.meeting_id)
+        
+        # デバッグ情報をログ出力
+        self.logger.info("📤 SENDING TO FRONTEND:")
+        self.logger.info("  - meeting_id: %s", result.get("meeting_id"))
+        self.logger.info("  - api_key: %s", result.get("api_key", "")[:8] + "..." if result.get("api_key") else "None")
+        self.logger.info("  - session_id: %s", result.get("session_id", "")[:20] + "..." if result.get("session_id") else "None")
+        self.logger.info("  - token: %s", result.get("token", "")[:20] + "..." if result.get("token") else "None")
+        self.logger.info("  - videoEnabled should be: %s", bool(result.get("api_key") and result.get("session_id") and result.get("token")))
+        
         return result
 
     def create_session_token(self, meeting_id: str) -> dict:
@@ -139,7 +148,17 @@ class SessionController:
         self.logger.info("✅ Token generated successfully")
         
         self.logger.info("📋 Step 5: Building response payload")
-        return self._build_session_payload(meeting, session_id, token)
+        result = self._build_session_payload(meeting, session_id, token)
+        
+        # デバッグ情報をログ出力
+        self.logger.info("📤 SENDING TO FRONTEND:")
+        self.logger.info("  - meeting_id: %s", result.get("meeting_id"))
+        self.logger.info("  - api_key: %s", result.get("api_key", "")[:8] + "..." if result.get("api_key") else "None")
+        self.logger.info("  - session_id: %s", result.get("session_id", "")[:20] + "..." if result.get("session_id") else "None")
+        self.logger.info("  - token: %s", result.get("token", "")[:20] + "..." if result.get("token") else "None")
+        self.logger.info("  - videoEnabled should be: %s", bool(result.get("api_key") and result.get("session_id") and result.get("token")))
+        
+        return result
 
     def validate_meeting(self, meeting_id: str) -> dict:
         meeting = self.repository.get_meeting(meeting_id)

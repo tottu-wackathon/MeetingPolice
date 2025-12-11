@@ -5,6 +5,10 @@ import { PocSatominPage } from './pages/PocSatominPage';
 import { ResultPage } from './pages/ResultPage';
 
 function App() {
+  console.log('📱 App component rendering...');
+  console.log('  - Current URL:', window.location.href);
+  console.log('  - User Agent:', navigator.userAgent);
+  
   return (
     <BrowserRouter>
       <Routes>

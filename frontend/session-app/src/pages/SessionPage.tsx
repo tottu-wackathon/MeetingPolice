@@ -9,6 +9,8 @@ import { useTranscripts } from '../hooks/useTranscripts';
 import type { Participant } from '../types';
 
 export function SessionPage() {
+  console.log('📄 SessionPage component rendering...');
+  
   const {
     session,
     status,
@@ -22,6 +24,11 @@ export function SessionPage() {
     toggleVideo,
     toggleHand,
   } = useMeetingSession();
+  
+  console.log('📄 SessionPage useMeetingSession result:');
+  console.log('  - Session exists:', !!session);
+  console.log('  - Status:', status);
+  console.log('  - Error:', error);
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
     Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; is_partial?: boolean; ai_status?: string }>
