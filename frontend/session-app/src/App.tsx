@@ -117,14 +117,17 @@ function App() {
           )}
 
           {/* Subscribers (Remote participants) */}
-          {vonageSession.subscribers.map((subscriber, index) => (
-            <div key={index} className="video-tile">
-              <VideoSubscriber
-                subscriber={subscriber}
-                stream={subscriber.stream}
-              />
-            </div>
-          ))}
+          {vonageSession.subscribers.map((subscriber, index) => {
+            const stream = vonageSession.streams.find(s => s.streamId === subscriber.stream.streamId);
+            return stream ? (
+              <div key={subscriber.stream.streamId} className="video-tile">
+                <VideoSubscriber
+                  subscriber={subscriber}
+                  stream={stream}
+                />
+              </div>
+            ) : null;
+          })}
 
           {/* Empty state */}
           {vonageSession.subscribers.length === 0 && vonageSession.isConnected && (

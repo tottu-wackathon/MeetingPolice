@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
-import * as OT from '@vonage/client-sdk-video';
+import type { Publisher } from '@vonage/client-sdk-video';
 
 interface VideoPublisherProps {
-  publisher: OT.Publisher | null;
+  publisher: Publisher | null;
   isAudioEnabled: boolean;
   isVideoEnabled: boolean;
 }
@@ -16,9 +16,8 @@ export function VideoPublisher({ publisher, isAudioEnabled, isVideoEnabled }: Vi
       containerRef.current.innerHTML = '';
       
       // Get the publisher's video element and append it
-      const publisherElement = publisher.element;
-      if (publisherElement) {
-        containerRef.current.appendChild(publisherElement);
+      if (publisher.element) {
+        containerRef.current.appendChild(publisher.element);
       }
     }
   }, [publisher]);

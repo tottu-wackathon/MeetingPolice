@@ -1,31 +1,40 @@
 declare module '@vonage/client-sdk-video' {
+  export interface VonageVideoClient {
+    initSession(sessionId: string): Session;
+    initPublisher(targetElement?: HTMLElement | string, properties?: PublisherOptions): Publisher;
+  }
+
   export interface Session {
-    connect(token: string, callback?: (error?: OTError) => void): void;
+    connect(token: string): Promise<void>;
     disconnect(): void;
-    publish(publisher: Publisher, callback?: (error?: OTError) => void): void;
+    publish(publisher: Publisher): Promise<void>;
     unpublish(publisher: Publisher): void;
-    subscribe(
-      stream: Stream,
-      targetElement?: HTMLElement | string,
-      properties?: SubscriberProperties,
-      callback?: (error?: OTError, subscriber?: Subscriber) => void
-    ): Subscriber;
+    subscribe(stream: Stream, targetElement?: HTMLElement | string, properties?: SubscriberOptions): Subscriber;
     unsubscribe(subscriber: Subscriber): void;
-    on(type: string, handler: (...args: any[]) => void): void;
-    off(type: string, handler?: (...args: any[]) => void): void;
+    on(event: string, handler: (...args: any[]) => void): void;
+    off(event: string, handler?: (...args: any[]) => void): void;
     connection?: Connection;
+    streams: Map<string, Stream>;
   }
 
   export interface Publisher {
-    publishAudio(value: boolean): void;
-    publishVideo(value: boolean): void;
-    on(type: string, handler: (...args: any[]) => void): void;
-    off(type: string, handler?: (...args: any[]) => void): void;
+    publishAudio(enabled: boolean): void;
+    publishVideo(enabled: boolean): void;
+    destroy(): void;
+    on(event: string, handler: (...args: any[]) => void): void;
+    off(event: string, handler?: (...args: any[]) => void): void;
+    element?: HTMLElement;
+    stream?: Stream;
   }
 
   export interface Subscriber {
-    on(type: string, handler: (...args: any[]) => void): void;
-    off(type: string, handler?: (...args: any[]) => void): void;
+    subscribeToAudio(enabled: boolean): void;
+    subscribeToVideo(enabled: boolean): void;
+    destroy(): void;
+    on(event: string, handler: (...args: any[]) => void): void;
+    off(event: string, handler?: (...args: any[]) => void): void;
+    element?: HTMLElement;
+    stream: Stream;
   }
 
   export interface Stream {
@@ -34,50 +43,37 @@ declare module '@vonage/client-sdk-video' {
     hasAudio: boolean;
     hasVideo: boolean;
     connection: Connection;
+    creationTime: number;
   }
 
   export interface Connection {
     connectionId: string;
+    creationTime: number;
+    data?: string;
   }
 
-  export interface OTError {
+  export interface PublisherOptions {
+    audioSource?: boolean | string;
+    videoSource?: boolean | string;
+    publishAudio?: boolean;
+    publishVideo?: boolean;
+    resolution?: string;
+    frameRate?: number;
+    mirror?: boolean;
+    name?: string;
+  }
+
+  export interface SubscriberOptions {
+    subscribeToAudio?: boolean;
+    subscribeToVideo?: boolean;
+    preferredResolution?: string;
+    preferredFrameRate?: number;
+  }
+
+  export interface VideoError {
     code: number;
     message: string;
   }
 
-  export interface PublisherProperties {
-    insertMode?: 'replace' | 'append' | 'before' | 'after';
-    width?: string | number;
-    height?: string | number;
-    publishAudio?: boolean;
-    publishVideo?: boolean;
-    mirror?: boolean;
-    name?: string;
-    videoSource?: 'camera' | 'screen';
-    style?: {
-      buttonDisplayMode?: 'auto' | 'off' | 'on';
-      nameDisplayMode?: 'auto' | 'off' | 'on';
-    };
-    resolution?: string;
-    frameRate?: number;
-  }
-
-  export interface SubscriberProperties {
-    insertMode?: 'replace' | 'append' | 'before' | 'after';
-    width?: string | number;
-    height?: string | number;
-    style?: {
-      buttonDisplayMode?: 'auto' | 'off' | 'on';
-      nameDisplayMode?: 'auto' | 'off' | 'on';
-    };
-    preferredResolution?: { width: number; height: number };
-    preferredFrameRate?: number;
-  }
-
-  export function initSession(apiKey: string, sessionId: string): Session;
-  export function initPublisher(
-    targetElement?: HTMLElement | string,
-    properties?: PublisherProperties,
-    callback?: (error?: OTError) => void
-  ): Publisher;
+  export default function createVonageVideoClient(apiKey: string): VonageVideoClient;
 }

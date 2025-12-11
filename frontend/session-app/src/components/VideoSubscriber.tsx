@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
-import * as OT from '@vonage/client-sdk-video';
+import type { Subscriber, Stream } from '@vonage/client-sdk-video';
 
 interface VideoSubscriberProps {
-  subscriber: OT.Subscriber;
-  stream: OT.Stream;
+  subscriber: Subscriber;
+  stream: Stream;
 }
 
 export function VideoSubscriber({ subscriber, stream }: VideoSubscriberProps) {
@@ -15,9 +15,8 @@ export function VideoSubscriber({ subscriber, stream }: VideoSubscriberProps) {
       containerRef.current.innerHTML = '';
       
       // Get the subscriber's video element and append it
-      const subscriberElement = subscriber.element;
-      if (subscriberElement) {
-        containerRef.current.appendChild(subscriberElement);
+      if (subscriber.element) {
+        containerRef.current.appendChild(subscriber.element);
       }
     }
   }, [subscriber]);
