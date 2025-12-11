@@ -219,7 +219,7 @@ class SessionController:
     
     async def _classify_realtime_hybrid(self, session_data: dict, text: str, speaker: str, index: int) -> None:
         """レガシー: analysis_handlerに移行済み"""
-        await self.analysis_handler.classify_and_send_realtime(session_data, text, speaker, index)
+        await self.analysis_handler.classify_and_send_realtime(session_data, text, speaker, index, force_bedrock=True)
     
     async def _check_police_dispatch_trigger(self, session_data: dict, alignment_score: int, text: str, speaker: str, websocket: WebSocket | None) -> None:
         """レガシー: police_dispatchに移行済み"""

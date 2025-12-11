@@ -27,7 +27,8 @@ class AnalysisHandler:
         session_data: dict, 
         text: str, 
         speaker: str, 
-        index: int
+        index: int,
+        force_bedrock: bool = True
     ) -> None:
         """
         リアルタイム分析を実行（poc_satomin準拠のハイブリッドアプローチ）
@@ -78,13 +79,17 @@ class AnalysisHandler:
         # すぐにクライアントに通知
         await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
         
-        # Step 2: バックグラウンドでBedrockに送信（非同期）
-        try:
-            task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
-            session_data["pending_bedrock_tasks"].add(task)
-            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
-        except Exception as e:
-            self.logger.warning(f"Failed to create Bedrock task: {e}")
+        # Step 2: バックグラウンドでBedrockに送信（条件付き）
+        if force_bedrock:
+            try:
+                task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
+                session_data["pending_bedrock_tasks"].add(task)
+                task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+                self.logger.info(f"📊 Bedrock分析開始: '{text[:20]}...' ({len(text)}文字)")
+            except Exception as e:
+                self.logger.warning(f"Failed to create Bedrock task: {e}")
+        else:
+            self.logger.debug(f"📊 Bedrock分析スキップ: '{text[:20]}...' ({len(text)}文字)")
     
     async def _classify_with_bedrock_session(
         self, 

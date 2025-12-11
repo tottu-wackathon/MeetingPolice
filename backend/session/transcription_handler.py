@@ -318,10 +318,18 @@ class TranscriptionHandler:
         if len(transcript.strip()) >= 5:
             unique_index = session_data["next_entry_index"] * 1000
             
-            # 即座に分析を実行
+            # 意味のある更新のみBedrock送信（案3）
+            should_send_bedrock = self._should_send_to_bedrock(
+                session_data, result_id, transcript
+            )
+            
+            # 即座に分析を実行（キーワードベースは常に実行）
             asyncio.create_task(analysis_handler.classify_and_send_realtime(
-                session_data, transcript, speaker_label, unique_index
+                session_data, transcript, speaker_label, unique_index, 
+                force_bedrock=should_send_bedrock
             ))
+            
+
 
     async def _handle_result_with_auto_finalize(
         self, 
@@ -462,6 +470,33 @@ class TranscriptionHandler:
                 "action": "finalize",
                 "payload": payload
             })
+
+    def _should_send_to_bedrock(self, session_data: dict, result_id: str, current_text: str) -> bool:
+        """段階的な発言で長さが大幅に増加した場合のみBedrockに送信"""
+        
+        # Bedrock送信履歴を管理
+        if 'bedrock_history' not in session_data:
+            session_data['bedrock_history'] = {}
+        
+        history = session_data['bedrock_history']
+        last_sent_text = history.get(result_id, "")
+        
+        # 1. 最初の送信（10文字以上になった時点）
+        if not last_sent_text and len(current_text) >= 10:
+            history[result_id] = current_text
+            self.logger.info(f"📊 Bedrock送信: 初回送信 ({len(current_text)}文字)")
+            return True
+        
+        # 2. 長さが50%以上増加した場合
+        if last_sent_text and len(last_sent_text) > 0:
+            length_ratio = len(current_text) / len(last_sent_text)
+            if length_ratio >= 1.5:  # 50%以上増加
+                history[result_id] = current_text
+                self.logger.info(f"📊 Bedrock送信: 長さ大幅増加 {len(last_sent_text)} → {len(current_text)}文字")
+                return True
+        
+        self.logger.debug(f"📊 Bedrock送信スキップ: {len(last_sent_text)} → {len(current_text)}文字 (増加率: {len(current_text)/max(len(last_sent_text), 1):.1f}倍)")
+        return False
 
     def _create_public_payload(self, entry: dict) -> dict:
         """WebSocket送信用の公開ペイロードを作成"""
