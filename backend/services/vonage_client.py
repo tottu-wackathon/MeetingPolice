@@ -29,6 +29,12 @@ class VonageClient:
         self.video_client = None
         self.is_mock_mode = False
         
+        self.logger.info("🚀 VonageClient initializing...")
+        self.logger.info("📋 Config: api_key=%s, app_id=%s, key_path=%s", 
+                         "***" if self.api_key else "None",
+                         "***" if self.application_id else "None", 
+                         self.private_key_path)
+        
         # Initialize Vonage Video API with JWT authentication
         if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
@@ -79,7 +85,7 @@ class VonageClient:
             return False
 
     def create_session(self, meeting_id: str) -> dict[str, Any]:
-        self.logger.info("🔄 Creating Vonage session for meeting_id=%s", meeting_id)
+        self.logger.info("🔄 VonageClient.create_session() called for meeting_id=%s", meeting_id)
         self.logger.info("📊 Vonage client state: is_mock_mode=%s, has_video_client=%s, auth_method=%s", 
                          self.is_mock_mode, bool(self.video_client), getattr(self, 'auth_method', 'unknown'))
         
@@ -113,7 +119,7 @@ class VonageClient:
             return {"session_id": mock_session_id}
 
     def generate_token(self, session_id: str, ttl_seconds: int = 300) -> str:
-        self.logger.info("🎫 Generating token for session_id=%s, ttl=%d seconds", session_id[:20] + "...", ttl_seconds)
+        self.logger.info("🎫 VonageClient.generate_token() called for session_id=%s, ttl=%d seconds", session_id[:20] + "...", ttl_seconds)
         
         if not self.video_client or self.is_mock_mode:
             # Generate a proper mock token that looks like a real Vonage token
