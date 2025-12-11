@@ -37,24 +37,41 @@ class AdminController:
 
     def get_vonage_status(self) -> dict:
         """Get Vonage API connection status and authentication method."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
+            logger.info("🔍 ADMIN: Testing Vonage connection status...")
             # Test session creation to verify connection
             test_session = self.vonage.create_session("test-connection")
             session_id = test_session.get("session_id", "")
+            logger.info(f"🔍 ADMIN: Test session created: {session_id[:30]}...")
             
-            # Determine connection status
-            if session_id.startswith("1_MX40") and not session_id.startswith("session-"):
-                # Real Vonage session ID format
+            # Determine connection status based on actual Vonage session ID format
+            is_real_session = (session_id.startswith("1_MX") or session_id.startswith("2_MX")) and len(session_id) > 50
+            is_mock_mode = getattr(self.vonage, 'is_mock_mode', False)
+            has_video_client = bool(getattr(self.vonage, 'video_client', None))
+            auth_method = getattr(self.vonage, 'auth_method', 'unknown')
+            
+            logger.info(f"🔍 ADMIN: Session analysis:")
+            logger.info(f"  - Session ID format: {session_id[:20]}... (length: {len(session_id)})")
+            logger.info(f"  - Is real session format: {is_real_session}")
+            logger.info(f"  - Is mock mode: {is_mock_mode}")
+            logger.info(f"  - Has video client: {has_video_client}")
+            logger.info(f"  - Auth method: {auth_method}")
+            
+            if is_real_session and not is_mock_mode and has_video_client:
+                # Real Vonage session ID format and not in mock mode
                 status = "connected"
-                auth_method = getattr(self.vonage, 'auth_method', 'unknown')
-            elif session_id.startswith("1_MX40"):
-                # Mock session but proper format
+                logger.info("✅ ADMIN: Status determined as CONNECTED")
+            elif is_real_session and (is_mock_mode or not has_video_client):
+                # Real format but mock mode enabled or no client
                 status = "mock"
-                auth_method = "mock"
+                logger.info("⚠️ ADMIN: Status determined as MOCK")
             else:
-                # Simple mock session
+                # Simple mock session or error
                 status = "disconnected"
-                auth_method = "mock"
+                logger.info("❌ ADMIN: Status determined as DISCONNECTED")
             
             return {
                 "status": status,
@@ -87,12 +104,12 @@ class AdminController:
             # Generate test token
             token = self.vonage.generate_token(session_id)
             
-            # Determine if it's a real session
-            is_real = (
-                session_id.startswith("1_MX40") and 
-                not getattr(self.vonage, 'is_mock_mode', True) and
-                bool(self.vonage.client)
-            )
+            # Determine if it's a real session (correct Vonage session ID format)
+            is_real_session = (session_id.startswith("1_MX") or session_id.startswith("2_MX")) and len(session_id) > 50
+            is_mock_mode = getattr(self.vonage, 'is_mock_mode', False)
+            has_real_client = bool(getattr(self.vonage, 'video_client', None))
+            
+            is_real = is_real_session and not is_mock_mode and has_real_client
             
             return {
                 "success": True,
