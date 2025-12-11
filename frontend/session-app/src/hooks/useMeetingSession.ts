@@ -38,6 +38,32 @@ export function useMeetingSession() {
     // 1) バックエンドから Vonage 資格情報を取得
     try {
       const data = await joinMeeting(trimmed);
+      
+      // Check if we received mock credentials
+      const isMockData = data.apiKey === 'mock_api_key' || 
+                        data.sessionId?.includes('mock') || 
+                        data.token?.startsWith('T1==');
+      
+      if (isMockData) {
+        console.warn('[useMeetingSession] Received mock credentials from backend');
+        setError('バックエンドがモックモードで動作しています。実際のVonage API認証情報を設定してください。');
+        
+        // Still create session but mark as audio-only
+        const audioOnlySession: MeetingSession = {
+          meetingId: trimmed,
+          title: data.title || 'Audio-only session (Mock Mode)',
+          status: 'audio-only',
+          sessionId: '',
+          token: '',
+          apiKey: '',
+          videoEnabled: false,
+          participants: [{ id: 'local', name: 'You', role: 'host', isSpeaking: false }],
+        };
+        setSession(audioOnlySession);
+        setStatus('connected');
+        return audioOnlySession;
+      }
+      
       const videoEnabled = Boolean(data.apiKey && data.sessionId && data.token);
       const sessionPayload = { ...data, videoEnabled };
       setSession(sessionPayload);
@@ -45,12 +71,14 @@ export function useMeetingSession() {
       return sessionPayload;
     } catch (err) {
       const message = err instanceof Error ? err.message : '参加に失敗しました';
-      setError(message);
+      console.error('[useMeetingSession] Backend join failed:', err);
+      
       // 2) フロントの固定値でフォールバック
       if (hasEnvSession) {
+        console.log('[useMeetingSession] Using frontend environment variables as fallback');
         const fallbackSession: MeetingSession = {
           meetingId: trimmed || 'static-meeting',
-          title: 'Static Vonage Session',
+          title: 'Static Vonage Session (Frontend Fallback)',
           status: 'live',
           sessionId: envSessionId!,
           token: envToken!,
@@ -60,9 +88,13 @@ export function useMeetingSession() {
         };
         setSession(fallbackSession);
         setStatus('connected');
+        setError('バックエンド接続に失敗しました。フロントエンドの環境変数を使用しています。');
         return fallbackSession;
       }
-      // 3) 音声のみ
+      
+      // 3) 音声のみモード
+      console.log('[useMeetingSession] Falling back to audio-only mode');
+      setError(`${message} 音声のみで参加します。`);
       const audioOnly: MeetingSession = {
         meetingId: trimmed || 'audio-only',
         title: 'Audio-only session',

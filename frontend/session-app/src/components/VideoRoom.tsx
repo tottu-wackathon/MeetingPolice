@@ -69,11 +69,45 @@ export function VideoRoom({
   if (status === 'error') {
     return (
       <div className="video-room-error">
-        <h3>接続エラー</h3>
-        <p>{error}</p>
-        <button onClick={handleLeave} className="btn btn-primary">
-          戻る
-        </button>
+        <h3>🚫 ビデオ会議接続エラー</h3>
+        <p className="error-message">{error}</p>
+        
+        {error?.includes('APIキーが無効') && (
+          <div className="error-troubleshooting">
+            <h4>🔧 トラブルシューティング</h4>
+            <div className="troubleshooting-steps">
+              <div className="step">
+                <strong>1. バックエンド設定確認</strong>
+                <p>以下の環境変数が.envファイルに正しく設定されているか確認してください：</p>
+                <ul>
+                  <li><code>VONAGE_API_KEY</code> - Vonage Video APIキー</li>
+                  <li><code>VONAGE_APPLICATION_ID</code> - Vonage アプリケーションID</li>
+                  <li><code>VONAGE_PRIVATE_KEY_PATH</code> - 秘密鍵ファイルのパス</li>
+                </ul>
+              </div>
+              <div className="step">
+                <strong>2. 秘密鍵ファイル確認</strong>
+                <p><code>secrets/vonage_private.key</code>ファイルが存在し、正しい内容が含まれているか確認してください。</p>
+              </div>
+              <div className="step">
+                <strong>3. Vonage Dashboard確認</strong>
+                <p>Vonage Video API Dashboardで認証情報が有効であることを確認してください。</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <div className="error-actions">
+          <button onClick={handleLeave} className="btn btn-primary">
+            戻る
+          </button>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="btn btn-secondary"
+          >
+            再読み込み
+          </button>
+        </div>
       </div>
     );
   }

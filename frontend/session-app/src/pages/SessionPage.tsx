@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { VideoRoom } from '../components/VideoRoom';
+import { VonageDebugPanel } from '../components/VonageDebugPanel';
 
 import { useMeetingSession } from '../hooks/useMeetingSession';
 import { useTranscripts } from '../hooks/useTranscripts';
@@ -28,6 +29,7 @@ export function SessionPage() {
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
   const [speakerNames, setSpeakerNames] = useState<{ [key: string]: string }>({});
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // useTranscriptsフックを使用してマイクアクセスと文字起こしを処理
   const { transcripts } = useTranscripts(
@@ -192,9 +194,32 @@ export function SessionPage() {
         </button>
       </form>
       {(joinError || error) && (
-        <p className="error" role="alert">
-          {joinError || error}
-        </p>
+        <div className="error-section" role="alert">
+          <div className="error-message">
+            <strong>接続エラー:</strong> {joinError || error}
+          </div>
+          {(joinError || error)?.includes('APIキーが無効') && (
+            <div className="error-details">
+              <h4>解決方法:</h4>
+              <ul>
+                <li>バックエンドの.envファイルでVONAGE_API_KEYが正しく設定されているか確認</li>
+                <li>VONAGE_APPLICATION_IDが正しく設定されているか確認</li>
+                <li>secrets/vonage_private.keyファイルが存在するか確認</li>
+                <li>Vonage Video APIの認証情報が有効か確認</li>
+              </ul>
+              <p>
+                <strong>注意:</strong> 現在バックエンドがモックモードで動作している可能性があります。
+                実際のビデオ会議を行うには、有効なVonage Video API認証情報が必要です。
+              </p>
+              <button 
+                onClick={() => setShowDebugPanel(true)}
+                className="debug-btn"
+              >
+                🔧 デバッグパネルを開く
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
@@ -807,6 +832,18 @@ export function SessionPage() {
         </div>
       )}
       {content}
+      
+      {/* Debug Panel */}
+      {showDebugPanel && (
+        <div className="debug-overlay">
+          <VonageDebugPanel
+            apiKey={session?.apiKey}
+            sessionId={session?.sessionId}
+            token={session?.token}
+            onClose={() => setShowDebugPanel(false)}
+          />
+        </div>
+      )}
     </Layout>
   );
 }

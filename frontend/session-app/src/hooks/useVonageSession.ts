@@ -39,9 +39,23 @@ export function useVonageSession({
       return;
     }
 
+    // Validate Vonage credentials
     if (!apiKey || !sessionId || !token) {
       setStatus('error');
       setError('Vonage の接続情報が不足しています');
+      console.error('[useVonageSession] Missing credentials:', {
+        hasApiKey: !!apiKey,
+        hasSessionId: !!sessionId,
+        hasToken: !!token
+      });
+      return;
+    }
+
+    // Check if credentials look like mock data
+    if (apiKey === 'mock_api_key' || sessionId.includes('mock') || token.startsWith('T1==')) {
+      setStatus('error');
+      setError('モック認証情報が検出されました。実際のVonage APIキーを設定してください。');
+      console.error('[useVonageSession] Mock credentials detected');
       return;
     }
 
@@ -53,7 +67,8 @@ export function useVonageSession({
 
     console.log('[useVonageSession] Initializing session...', {
       apiKey: apiKey.substring(0, 8) + '...',
-      sessionId: sessionId.substring(0, 20) + '...'
+      sessionId: sessionId.substring(0, 20) + '...',
+      tokenLength: token.length
     });
     setStatus('connecting');
     setError(null);
@@ -185,16 +200,22 @@ export function useVonageSession({
         let errorMessage = '接続に失敗しました';
         switch (connectError.code) {
           case 1004:
-            errorMessage = 'APIキーが無効です';
+            errorMessage = 'APIキーが無効です。バックエンドのVonage設定を確認してください。';
             break;
           case 1005:
-            errorMessage = 'セッションIDが無効です';
+            errorMessage = 'セッションIDが無効です。新しいセッションを作成してください。';
             break;
           case 1006:
-            errorMessage = 'トークンが無効です';
+            errorMessage = 'トークンが無効または期限切れです。再度参加してください。';
             break;
           case 1026:
-            errorMessage = 'ネットワーク接続を確認してください';
+            errorMessage = 'ネットワーク接続を確認してください。';
+            break;
+          case 1013:
+            errorMessage = 'セッションが見つかりません。正しいミーティングIDを確認してください。';
+            break;
+          case 1014:
+            errorMessage = 'セッションの参加者数が上限に達しています。';
             break;
           default:
             errorMessage = `接続エラー (${connectError.code}): ${connectError.message}`;
