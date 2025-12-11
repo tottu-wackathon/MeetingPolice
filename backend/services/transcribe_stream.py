@@ -182,8 +182,8 @@ class TranscribeStream:
             language_code=language_code,
             media_sample_rate_hz=16000,
             media_encoding="pcm",
-            enable_speaker_identification=True,
-            number_of_speakers=5,  # Maximum number of speakers to identify
+            show_speaker_labels=True,
+            max_speaker_labels=5,  # Maximum number of speakers to identify
         )
         
         # Create event handler
@@ -207,8 +207,16 @@ class TranscribeStream:
                                 # Count speaker labels in items
                                 if hasattr(alternative, 'items') and alternative.items:
                                     for item in alternative.items:
-                                        if hasattr(item, 'speaker_label') and item.speaker_label:
+                                        # Try different attribute names for speaker label
+                                        label = None
+                                        if hasattr(item, 'speaker_label'):
                                             label = item.speaker_label
+                                        elif hasattr(item, 'speaker'):
+                                            label = item.speaker
+                                        elif hasattr(item, 'content') and hasattr(item, 'speaker_id'):
+                                            label = getattr(item, 'speaker_id', None)
+                                        
+                                        if label:
                                             speaker_counts[label] = speaker_counts.get(label, 0) + 1
                                 
                                 # Use the most frequent speaker label
@@ -321,7 +329,8 @@ class TranscribeStream:
                     items = alternative.get("Items", [])
                     
                     for item in items:
-                        label = item.get("SpeakerLabel")
+                        # Try different keys for speaker label
+                        label = item.get("SpeakerLabel") or item.get("Speaker") or item.get("speaker_label")
                         if label:
                             speaker_counts[label] = speaker_counts.get(label, 0) + 1
                     
@@ -329,7 +338,9 @@ class TranscribeStream:
                     if speaker_counts:
                         speaker_label = max(speaker_counts, key=speaker_counts.get)
                     
-                    logger.info("boto3 transcribe result: %s (speaker: %s)", text, speaker_label)
+                    logger.info("boto3 transcribe result: %s (partial: %s, speaker: %s)", 
+                              text, result.get("IsPartial", False), speaker_label)
+                    
                     payload = {
                         "transcript": text,
                         "is_partial": result.get("IsPartial", False),

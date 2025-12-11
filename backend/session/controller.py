@@ -145,6 +145,14 @@ class SessionController:
                     raw_speaker = self._normalize_raw_label(speaker_label)
                     friendly_speaker = self._speaker_name(session_data, raw_speaker)
                     
+                    # Log speaker information for debugging
+                    self.logger.debug(f"Processing transcript:")
+                    self.logger.debug(f"  - Raw speaker_label: {speaker_label}")
+                    self.logger.debug(f"  - Normalized raw_speaker: {raw_speaker}")
+                    self.logger.debug(f"  - Friendly speaker: {friendly_speaker}")
+                    self.logger.debug(f"  - Is partial: {is_partial}")
+                    self.logger.debug(f"  - Text: {transcript[:50]}...")
+                    
                     # Handle result with speaker continuity
                     asyncio.create_task(self._handle_result(
                         session_data, result_id, friendly_speaker, raw_speaker, 
@@ -270,20 +278,41 @@ class SessionController:
         unknown_tokens = {"", "spk_unk", "__unknown__", "unknown", "unk", None}
         if raw_label in unknown_tokens:
             return "spk_unk"
-        key_str = str(raw_label).strip()
-        return key_str or "spk_unk"
+        
+        # Convert to string and clean up
+        key_str = str(raw_label).strip() if raw_label is not None else ""
+        
+        # Handle common AWS Transcribe speaker label formats
+        if key_str.startswith("spk_"):
+            return key_str  # Keep AWS format as-is (e.g., "spk_0", "spk_1")
+        elif key_str.isdigit():
+            return f"spk_{key_str}"  # Convert numeric to AWS format
+        elif key_str:
+            return key_str  # Keep other formats as-is
+        else:
+            return "spk_unk"
 
     def _speaker_name(self, session_data: dict, raw_label: str | None) -> str:
         """Get friendly speaker name."""
         key = self._normalize_raw_label(raw_label)
+        
+        # Handle unknown speaker
         if key == "spk_unk":
             session_data["speaker_labels"].setdefault("spk_unk", "判別中...")
             return session_data["speaker_labels"]["spk_unk"]
-            
+        
+        # Create new speaker label if not exists
         if key not in session_data["speaker_labels"]:
-            label = f"Speaker {session_data['next_speaker_index']}"
+            # Extract speaker number from AWS format if possible
+            if key.startswith("spk_") and key[4:].isdigit():
+                speaker_num = int(key[4:]) + 1  # Convert 0-based to 1-based
+                label = f"Speaker {speaker_num}"
+            else:
+                label = f"Speaker {session_data['next_speaker_index']}"
+                session_data['next_speaker_index'] += 1
+            
             session_data["speaker_labels"][key] = label
-            session_data["next_speaker_index"] += 1
+            self.logger.info(f"👤 New speaker registered: {key} → {label}")
             
         return session_data["speaker_labels"][key]
 
@@ -297,11 +326,29 @@ class SessionController:
         current_transcript = session_data["current_transcript"]
         
         # Check if this is a continuation of the same speaker
+        # Consider both raw_label and normalized speaker comparison
         is_same_speaker = (
             current_transcript is not None and 
-            current_transcript["raw_speaker"] == raw_label and
-            not current_transcript.get("is_finalized", False)
+            not current_transcript.get("is_finalized", False) and
+            (
+                # Same raw speaker label (most reliable)
+                (raw_label and current_transcript["raw_speaker"] == raw_label) or
+                # Same normalized speaker (fallback)
+                (not raw_label and current_transcript["speaker"] == speaker_label)
+            )
         )
+        
+        # Log speaker change detection for debugging
+        if current_transcript:
+            self.logger.debug(f"Speaker continuity check:")
+            self.logger.debug(f"  - Current raw_speaker: {current_transcript.get('raw_speaker')}")
+            self.logger.debug(f"  - New raw_label: {raw_label}")
+            self.logger.debug(f"  - Current speaker: {current_transcript.get('speaker')}")
+            self.logger.debug(f"  - New speaker_label: {speaker_label}")
+            self.logger.debug(f"  - Is same speaker: {is_same_speaker}")
+            self.logger.debug(f"  - Is finalized: {current_transcript.get('is_finalized', False)}")
+        else:
+            self.logger.debug(f"No current transcript, creating new entry for speaker: {speaker_label} (raw: {raw_label})")
         
         if is_same_speaker:
             # Update existing transcript for the same speaker
@@ -323,8 +370,10 @@ class SessionController:
             })
             
         else:
-            # Finalize previous transcript if exists
+            # Speaker has changed - finalize previous transcript if exists
             if current_transcript and not current_transcript.get("is_finalized", False):
+                self.logger.info(f"🔄 Speaker changed: {current_transcript.get('speaker')} → {speaker_label}")
+                self.logger.info(f"   Raw labels: {current_transcript.get('raw_speaker')} → {raw_label}")
                 await self._finalize_current_transcript(session_data, websocket)
             
             # Create new transcript entry for new speaker or first transcript
@@ -341,6 +390,8 @@ class SessionController:
             
             session_data["next_entry_index"] += 1
             session_data["current_transcript"] = new_entry
+            
+            self.logger.info(f"📝 New transcript entry created for {speaker_label} (index: {new_entry['index']})")
             
             # Send new transcript
             await websocket.send_json({
