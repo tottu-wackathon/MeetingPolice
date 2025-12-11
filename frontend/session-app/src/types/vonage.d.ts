@@ -1,11 +1,15 @@
-// Type definitions for Vonage Client SDK Video
 declare module '@vonage/client-sdk-video' {
   export interface Session {
     connect(token: string, callback?: (error?: OTError) => void): void;
     disconnect(): void;
     publish(publisher: Publisher, callback?: (error?: OTError) => void): void;
     unpublish(publisher: Publisher): void;
-    subscribe(stream: Stream, targetElement?: HTMLElement | string, properties?: SubscriberProperties, callback?: (error?: OTError, subscriber?: Subscriber) => void): Subscriber;
+    subscribe(
+      stream: Stream,
+      targetElement?: HTMLElement | string,
+      properties?: SubscriberProperties,
+      callback?: (error?: OTError, subscriber?: Subscriber) => void
+    ): Subscriber;
     unsubscribe(subscriber: Subscriber): void;
     on(type: string, handler: (...args: any[]) => void): void;
     off(type: string, handler?: (...args: any[]) => void): void;
@@ -71,5 +75,9 @@ declare module '@vonage/client-sdk-video' {
   }
 
   export function initSession(apiKey: string, sessionId: string): Session;
-  export function initPublisher(targetElement?: HTMLElement | string, properties?: PublisherProperties, callback?: (error?: OTError) => void): Publisher;
+  export function initPublisher(
+    targetElement?: HTMLElement | string,
+    properties?: PublisherProperties,
+    callback?: (error?: OTError) => void
+  ): Publisher;
 }
