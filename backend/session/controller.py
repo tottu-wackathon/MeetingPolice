@@ -192,6 +192,9 @@ class SessionController:
                     # If no speaker label, use time-based estimation
                     if not speaker_label:
                         speaker_label = self._estimate_speaker_by_time(session_data, transcript)
+                        self.logger.debug(f"No speaker label from Transcribe, using time-based estimation: {speaker_label}")
+                    else:
+                        self.logger.debug(f"Speaker label from Transcribe: {speaker_label}")
                     
                     raw_speaker = self._normalize_raw_label(speaker_label)
                     friendly_speaker = self._speaker_name(session_data, raw_speaker)

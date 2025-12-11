@@ -68,24 +68,26 @@ class TranscribeStream:
             on_transcript({"error": "transcribe client not configured"})
             return
             
-        # Try amazon-transcribe streaming API first (with speaker identification)
-        try:
-            self._stream_with_amazon_transcribe(audio_queue, on_transcript, language_code)
-            return
-        except ImportError:
-            logger.warning("amazon-transcribe package not available, trying boto3 API")
-        except Exception as e:
-            logger.error("amazon-transcribe streaming failed: %s", e)
-        
-        # Fallback to boto3 API
+        # Try boto3 API first for better speaker identification support
+        logger.info("Prioritizing boto3 API for speaker identification support")
         try:
             self._stream_with_boto3(audio_queue, on_transcript, language_code)
+            return
         except (BotoCoreError, ClientError) as exc:
             logger.error("boto3 transcribe failed: %s", exc)
-            on_transcript({"error": str(exc)})
         except Exception as exc:
-            logger.error("Transcribe streaming failed: %s", exc)
-            on_transcript({"error": str(exc)})
+            logger.error("boto3 transcribe streaming failed: %s", exc)
+        
+        # Fallback to amazon-transcribe streaming API
+        try:
+            logger.warning("Falling back to amazon-transcribe library")
+            self._stream_with_amazon_transcribe(audio_queue, on_transcript, language_code)
+        except ImportError:
+            logger.error("amazon-transcribe package not available")
+            on_transcript({"error": "Both boto3 and amazon-transcribe failed"})
+        except Exception as e:
+            logger.error("amazon-transcribe streaming failed: %s", e)
+            on_transcript({"error": str(e)})
 
     def _stream_with_amazon_transcribe(
         self,
@@ -176,13 +178,27 @@ class TranscribeStream:
                         last_chunk_time = current_time
                     await asyncio.sleep(0.1)
         
-        # Start streaming (speaker identification not supported in amazon-transcribe library)
-        logger.info("Starting transcribe stream (no speaker identification)...")
-        stream = await client.start_stream_transcription(
-            language_code=language_code,
-            media_sample_rate_hz=16000,
-            media_encoding="pcm",
-        )
+        # Start streaming with speaker identification attempt
+        logger.info("Starting transcribe stream with speaker identification attempt...")
+        try:
+            # Try with speaker identification parameters
+            stream = await client.start_stream_transcription(
+                language_code=language_code,
+                media_sample_rate_hz=16000,
+                media_encoding="pcm",
+                enable_speaker_identification=True,
+                number_of_speakers=5,
+            )
+            logger.info("✅ Speaker identification enabled in amazon-transcribe")
+        except Exception as e:
+            logger.warning(f"⚠️ Speaker identification not supported in amazon-transcribe: {e}")
+            # Fallback without speaker identification
+            stream = await client.start_stream_transcription(
+                language_code=language_code,
+                media_sample_rate_hz=16000,
+                media_encoding="pcm",
+            )
+            logger.info("Fallback to transcription without speaker identification")
         
         # Create event handler
         class MyEventHandler(TranscriptResultStreamHandler):
@@ -490,6 +506,13 @@ class TranscribeStream:
                     speaker_counts = {}
                     items = alternative.get("Items", [])
                     
+                    # Debug: Log items structure for first result
+                    if len(items) > 0:
+                        first_item = items[0]
+                        logger.debug(f"First item structure: {list(first_item.keys())}")
+                        if "SpeakerLabel" in first_item:
+                            logger.debug(f"SpeakerLabel found: {first_item['SpeakerLabel']}")
+                    
                     for item in items:
                         # Try different keys for speaker label
                         label = item.get("SpeakerLabel") or item.get("Speaker") or item.get("speaker_label")
@@ -499,6 +522,9 @@ class TranscribeStream:
                     # Use the most frequent speaker label
                     if speaker_counts:
                         speaker_label = max(speaker_counts, key=speaker_counts.get)
+                        logger.debug(f"Speaker counts: {speaker_counts}, selected: {speaker_label}")
+                    else:
+                        logger.debug("No speaker labels found in items")
                     
                     logger.info("boto3 transcribe result: %s (partial: %s, speaker: %s)", 
                               text, result.get("IsPartial", False), speaker_label)
