@@ -71,6 +71,12 @@ export function useMeetingSession() {
       }
       
       const videoEnabled = Boolean(data.apiKey && data.sessionId && data.token);
+      console.log('[useMeetingSession] Video enabled check:');
+      console.log('  - Has API Key:', !!data.apiKey);
+      console.log('  - Has Session ID:', !!data.sessionId);
+      console.log('  - Has Token:', !!data.token);
+      console.log('  - Video Enabled:', videoEnabled);
+      
       const sessionPayload = { ...data, videoEnabled };
       setSession(sessionPayload);
       setStatus('connected');

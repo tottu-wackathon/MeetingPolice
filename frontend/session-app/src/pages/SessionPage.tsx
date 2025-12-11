@@ -418,7 +418,15 @@ export function SessionPage() {
         </section>
 
         {/* Video Conference Section */}
-        {session.videoEnabled && (
+        {(() => {
+          console.log('[SessionPage] Video section check:');
+          console.log('  - Session exists:', !!session);
+          console.log('  - Video enabled:', session?.videoEnabled);
+          console.log('  - API Key:', session?.apiKey ? `${session.apiKey.substring(0, 8)}...` : 'None');
+          console.log('  - Session ID:', session?.sessionId ? `${session.sessionId.substring(0, 20)}...` : 'None');
+          console.log('  - Token:', session?.token ? `${session.token.substring(0, 20)}...` : 'None');
+          return true; // 一時的に常に表示
+        })() && (
           <section className="panel video-panel">
             <div className="panel-header">
               <h2>ビデオ会議</h2>
