@@ -177,6 +177,36 @@ export function VonageStatusPanel() {
             🎉 Vonage Video APIに正常に接続されています。ビデオ通話機能が利用できます。
           </div>
         )}
+
+        {/* セッション作成テストボタン */}
+        <div style={{ marginTop: '12px' }}>
+          <button 
+            onClick={async () => {
+              try {
+                const response = await fetch('/api/admin/vonage/test-session', { method: 'POST' });
+                const result = await response.json();
+                if (response.ok) {
+                  alert(`セッション作成テスト成功！\nセッションID: ${result.session_id.substring(0, 20)}...\nタイプ: ${result.is_real ? 'リアル' : 'モック'}`);
+                } else {
+                  alert(`セッション作成テスト失敗: ${result.error}`);
+                }
+              } catch (error) {
+                alert(`テストエラー: ${error}`);
+              }
+            }}
+            style={{
+              padding: '8px 12px',
+              fontSize: '0.85em',
+              backgroundColor: '#007acc',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            🧪 セッション作成テスト
+          </button>
+        </div>
       </div>
     </section>
   );

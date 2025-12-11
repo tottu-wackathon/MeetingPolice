@@ -34,3 +34,9 @@ def get_vonage_status():
 def list_meetings_with_status():
     """List meetings with Vonage connection status."""
     return controller.list_meetings_with_vonage_status()
+
+
+@router.post("/vonage/test-session")
+def test_vonage_session():
+    """Test Vonage session creation with detailed logging."""
+    return controller.test_session_creation()

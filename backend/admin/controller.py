@@ -74,6 +74,41 @@ class AdminController:
                 "has_private_key": False
             }
 
+    def test_session_creation(self) -> dict:
+        """Test Vonage session creation with detailed logging."""
+        try:
+            import uuid
+            test_meeting_id = f"test-{uuid.uuid4().hex[:8]}"
+            
+            # Create test session
+            result = self.vonage.create_session(test_meeting_id)
+            session_id = result.get("session_id", "")
+            
+            # Generate test token
+            token = self.vonage.generate_token(session_id)
+            
+            # Determine if it's a real session
+            is_real = (
+                session_id.startswith("1_MX40") and 
+                not getattr(self.vonage, 'is_mock_mode', True) and
+                bool(self.vonage.client)
+            )
+            
+            return {
+                "success": True,
+                "session_id": session_id,
+                "token": token[:20] + "..." if len(token) > 20 else token,
+                "is_real": is_real,
+                "auth_method": getattr(self.vonage, 'auth_method', 'unknown'),
+                "test_meeting_id": test_meeting_id
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "is_real": False
+            }
+
     def list_meetings_with_vonage_status(self) -> dict:
         """List meetings with Vonage connection status."""
         meetings = self.list_meetings()
