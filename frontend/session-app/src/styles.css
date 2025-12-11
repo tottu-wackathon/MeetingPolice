@@ -951,6 +951,8 @@ strong {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  flex: 0 0 auto;
+  min-height: 110px;
 }
 
 .analysis-item:hover {
