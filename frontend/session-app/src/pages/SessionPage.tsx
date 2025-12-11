@@ -150,7 +150,7 @@ export function SessionPage() {
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
     // Meeting IDが空の場合はデフォルト値を使用
-    const finalMeetingCode = meetingCode.trim() || 'mtg-1765456066';
+    const finalMeetingCode = meetingCode.trim() || 'mtg-1765456864';
     setJoining(true);
     setJoinError(null);
     try {
