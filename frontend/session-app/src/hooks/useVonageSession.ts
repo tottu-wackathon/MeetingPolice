@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type OT from '@opentok/client';
+import OT from '@opentok/client';
 
 export interface VonageParticipant {
   id: string;
@@ -39,14 +39,12 @@ export function useVonageSession({
     console.log('  - API Key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'Not provided');
     console.log('  - Session ID:', sessionId ? `${sessionId.substring(0, 20)}...` : 'Not provided');
     console.log('  - Token:', token ? `${token.substring(0, 20)}... (length: ${token.length})` : 'Not provided');
-    console.log('  - OpenTok SDK Available:', !!window.OT);
-    console.log('  - window.OT methods:', window.OT ? Object.keys(window.OT).slice(0, 10) : 'Not available');
+    console.log('📋 SDK Status:');
+    console.log('  - NPM Package OT Available:', !!OT);
+    console.log('  - OT.initSession available:', typeof OT?.initSession);
+    console.log('  - OT.VERSION:', OT?.VERSION || 'Not available');
+    console.log('  - OT object keys:', OT ? Object.keys(OT).slice(0, 10) : 'Not available');
     console.log('  - Document ready state:', document.readyState);
-    
-    // Test if we can access OT methods
-    if (window.OT) {
-      console.log('  - OT.initSession available:', typeof window.OT.initSession);
-    }
   }, [apiKey, sessionId, token, enabled]);
 
   // Initialize session
@@ -89,59 +87,18 @@ export function useVonageSession({
       return;
     }
 
-    // Wait for Vonage SDK to load if not immediately available
-    const waitForVonageSDK = () => {
-      return new Promise<void>((resolve, reject) => {
-        let attempts = 0;
-        const maxAttempts = 50; // 5 seconds max wait
-        
-        const checkSDK = () => {
-          attempts++;
-          console.log(`📋 Checking Vonage SDK availability (attempt ${attempts}/${maxAttempts})`);
-          
-          if (window.OT && typeof window.OT.initSession === 'function') {
-            console.log('✅ Vonage SDK is available');
-            resolve();
-            return;
-          }
-          
-          if (attempts >= maxAttempts) {
-            console.error('❌ Vonage SDK failed to load after maximum attempts');
-            reject(new Error('Vonage SDK timeout'));
-            return;
-          }
-          
-          setTimeout(checkSDK, 100);
-        };
-        
-        checkSDK();
-      });
-    };
+    // Check if npm package OT is available
+    if (!OT || typeof OT.initSession !== 'function') {
+      console.error('❌ VONAGE SDK NOT AVAILABLE');
+      console.error('  - OT object:', !!OT);
+      console.error('  - OT.initSession:', typeof OT?.initSession);
+      console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
+      setStatus('error');
+      setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
+      return;
+    }
 
-    // Wait for SDK and then proceed
-    waitForVonageSDK()
-      .then(() => {
-        const OT = window.OT;
-        
-        if (!OT || typeof OT.initSession !== 'function') {
-          console.error('❌ VONAGE SDK NOT AVAILABLE AFTER WAIT');
-          console.error('  - window.OT:', !!window.OT);
-          console.error('  - OT.initSession:', typeof OT?.initSession);
-          console.error('  - Available OT methods:', OT ? Object.keys(OT) : 'OT is undefined');
-          setStatus('error');
-          setError('Vonage SDK を読み込めませんでした。ページを再読み込みしてください。');
-          return;
-        }
-
-        initializeVonageSession(OT);
-      })
-      .catch((error) => {
-        console.error('❌ VONAGE SDK LOADING FAILED:', error);
-        setStatus('error');
-        setError('Vonage SDK の読み込みがタイムアウトしました。ページを再読み込みしてください。');
-      });
-
-    const initializeVonageSession = (OT: any) => {
+    const initializeVonageSession = () => {
       console.log('📋 Step 1: Initializing Vonage Session');
       console.log('  - API Key:', apiKey.substring(0, 8) + '...');
       console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
@@ -341,6 +298,9 @@ export function useVonageSession({
         }
       });
     };
+
+    // Initialize Vonage session
+    initializeVonageSession();
 
     // Cleanup
     return () => {
