@@ -243,6 +243,11 @@ class AnalysisHandler:
         if len(text_stripped) < 5:
             return True
         
+        # 接続詞や繋ぎ言葉をスキップ（コメント扱い）
+        if self._is_conjunction_or_filler(text_stripped):
+            self.logger.info(f"🔍 接続詞・繋ぎ言葉として分析スキップ: '{text_stripped}'")
+            return True
+        
         # 「コメント」カテゴリの短い発言をより詳細にチェック
         if category == "コメント" and len(text_stripped) <= 15:
             # bedrock_utils.pyで定義されている短い返答パターン
@@ -258,5 +263,51 @@ class AnalysisHandler:
             for response in short_responses:
                 if text_stripped == response or (len(text_stripped) <= 10 and response in text_stripped):
                     return True
+        
+        return False
+    
+    def _is_conjunction_or_filler(self, text: str) -> bool:
+        """
+        接続詞や繋ぎ言葉を検出する
+        これらの発言は「コメント」として扱い、警察出動の対象外とする
+        """
+        text_stripped = text.strip()
+        
+        # 日本語の接続詞・繋ぎ言葉のパターン
+        conjunction_patterns = [
+            # 基本的な接続詞
+            r'^(それで|だから|でも|しかし|ただし|なので|そして|また|さらに|一方|ところで|ちなみに)',
+            # 感嘆詞・相槌
+            r'^(あー|えー|うーん|そうですね|なるほど|確かに|いいですね)',
+            # 繋ぎ言葉・フィラー
+            r'^(のが|やっぱり|ちょっと|まあ|とりあえず|いちおう|一応)',
+            # 複合パターン（ユーザーの例: "のが、やっぱりちょっと"）
+            r'^(のが[、，]?\s*(やっぱり|ちょっと))',
+            r'^(やっぱり[、，]?\s*(ちょっと|のが))',
+            # 短い感想・反応
+            r'^(そうか|そっか|なるほど|ふーん|へー|ほー)',
+            # 時間稼ぎの表現
+            r'^(えーっと|あのー|そのー|まー)',
+        ]
+        
+        # パターンマッチング
+        import re
+        for pattern in conjunction_patterns:
+            if re.match(pattern, text_stripped, re.IGNORECASE):
+                self.logger.info(f"🔍 接続詞・繋ぎ言葉を検出: '{text_stripped}' → パターン: {pattern}")
+                return True
+        
+        # 短い単語の組み合わせパターン
+        short_fillers = [
+            "のが", "やっぱり", "ちょっと", "まあ", "でも", "だから", "それで",
+            "そうですね", "なるほど", "確かに", "いいですね", "そうか", "そっか"
+        ]
+        
+        # 短い発言で繋ぎ言葉のみの場合
+        if len(text_stripped) <= 15:
+            words = text_stripped.replace('、', ' ').replace('，', ' ').split()
+            if all(word in short_fillers for word in words if word):
+                self.logger.info(f"🔍 短い繋ぎ言葉の組み合わせを検出: '{text_stripped}'")
+                return True
         
         return False

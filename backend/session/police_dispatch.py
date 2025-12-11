@@ -55,6 +55,9 @@ class PoliceDispatchManager:
                     'low_alignment_start_time': None,
                     'recent_checks': {}  # 最近のチェック記録
                 }
+                self.logger.info(f"🔧 Police dispatch state initialized for meeting {meeting_id}")
+            else:
+                self.logger.info(f"🔧 Police dispatch state exists: is_active={session_data['police_dispatch_state']['is_active']}, last_triggered={session_data['police_dispatch_state']['last_triggered_time']}")
             
             state = session_data['police_dispatch_state']
             current_time = time.time()
@@ -83,6 +86,7 @@ class PoliceDispatchManager:
             
             # 警察出動トリガー: 一致度30%以下
             if alignment_score <= 30:
+                self.logger.info(f"🚨 Alignment {alignment_score}% <= 30% - Triggering police dispatch check")
                 await self._handle_police_dispatch_trigger(session_data, state, current_time, alignment_score, text, speaker, meeting_id)
             
             # 警察出動解除: 一致度50%以上
@@ -114,11 +118,14 @@ class PoliceDispatchManager:
             self.logger.info(f"🚨 Low alignment period started: {alignment_score}%")
         
         # 警察出動がまだアクティブでない場合、または前回から5分以上経過している場合
+        time_since_last = (current_time - state['last_triggered_time']) if state['last_triggered_time'] else None
         should_trigger = (
             not state['is_active'] or 
             (state['last_triggered_time'] is not None and 
              current_time - state['last_triggered_time'] >= 5 * 60)  # 5分間隔
         )
+        
+        self.logger.info(f"🔍 Police dispatch trigger check: is_active={state['is_active']}, last_triggered={state['last_triggered_time']}, time_since_last={time_since_last:.1f}s if time_since_last else 'None', should_trigger={should_trigger}")
         
         if should_trigger:
             self.logger.info("🚨 POLICE DISPATCH TRIGGERED!")
@@ -239,6 +246,11 @@ class PoliceDispatchManager:
             self.logger.info(f"🔍 短すぎる発言をスキップ: '{text_stripped}' (len={len(text_stripped)})")
             return True
         
+        # 接続詞や繋ぎ言葉をスキップ（コメント扱い）
+        if self._is_conjunction_or_filler(text_stripped):
+            self.logger.info(f"🔍 接続詞・繋ぎ言葉として警察出動チェックスキップ: '{text_stripped}'")
+            return True
+        
         # bedrock_utils.pyの_guess_categoryを使用して高度な分類
         guessed_category = _guess_category(text)
         
@@ -266,6 +278,50 @@ class PoliceDispatchManager:
             name_pattern = re.match(r'^[ぁ-んァ-ヶ一-龠ー]+です$', text_stripped)
             if name_pattern:
                 self.logger.info(f"🔍 名前の発言をスキップ: '{text_stripped}'")
+                return True
+        
+        return False
+    
+    def _is_conjunction_or_filler(self, text: str) -> bool:
+        """
+        接続詞や繋ぎ言葉を検出する
+        これらの発言は「コメント」として扱い、警察出動の対象外とする
+        """
+        text_stripped = text.strip()
+        
+        # 日本語の接続詞・繋ぎ言葉のパターン
+        conjunction_patterns = [
+            # 基本的な接続詞
+            r'^(それで|だから|でも|しかし|ただし|なので|そして|また|さらに|一方|ところで|ちなみに)',
+            # 感嘆詞・相槌
+            r'^(あー|えー|うーん|そうですね|なるほど|確かに|いいですね)',
+            # 繋ぎ言葉・フィラー
+            r'^(のが|やっぱり|ちょっと|まあ|とりあえず|いちおう|一応)',
+            # 複合パターン（ユーザーの例: "のが、やっぱりちょっと"）
+            r'^(のが[、，]?\s*(やっぱり|ちょっと))',
+            r'^(やっぱり[、，]?\s*(ちょっと|のが))',
+            # 短い感想・反応
+            r'^(そうか|そっか|なるほど|ふーん|へー|ほー)',
+            # 時間稼ぎの表現
+            r'^(えーっと|あのー|そのー|まー)',
+        ]
+        
+        # パターンマッチング
+        import re
+        for pattern in conjunction_patterns:
+            if re.match(pattern, text_stripped, re.IGNORECASE):
+                return True
+        
+        # 短い単語の組み合わせパターン
+        short_fillers = [
+            "のが", "やっぱり", "ちょっと", "まあ", "でも", "だから", "それで",
+            "そうですね", "なるほど", "確かに", "いいですね", "そうか", "そっか"
+        ]
+        
+        # 短い発言で繋ぎ言葉のみの場合
+        if len(text_stripped) <= 15:
+            words = text_stripped.replace('、', ' ').replace('，', ' ').split()
+            if all(word in short_fillers for word in words if word):
                 return True
         
         return False
