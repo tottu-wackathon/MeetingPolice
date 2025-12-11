@@ -102,6 +102,24 @@ export function SessionPage() {
   const [participants, setParticipants] = useState<Participant[]>([
     { id: 'local', name: 'You', role: 'host', isSpeaking: false }
   ]);
+  
+  // アジェンダ関連のstate
+  const [selectedAgenda, setSelectedAgenda] = useState<File | null>(null);
+  const [agendaText, setAgendaText] = useState<string>('');
+
+  // アジェンダファイル選択ハンドラー
+  const handleAgendaSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === 'text/plain') {
+      setSelectedAgenda(file);
+      // ファイル内容を読み取り
+      const text = await file.text();
+      setAgendaText(text);
+    } else if (file) {
+      alert('テキストファイル(.txt)を選択してください');
+      event.target.value = '';
+    }
+  };
 
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
@@ -110,6 +128,24 @@ export function SessionPage() {
     setJoining(true);
     setJoinError(null);
     try {
+      // アジェンダファイルがある場合は先にアップロード
+      if (selectedAgenda) {
+        const formData = new FormData();
+        formData.append('file', selectedAgenda);
+        
+        const response = await fetch(`/api/session/meetings/${finalMeetingCode}/agenda`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'アジェンダのアップロードに失敗しました');
+        }
+        
+        console.log('Agenda uploaded successfully');
+      }
+      
       await joinMeeting(finalMeetingCode);
       navigate(`/session/${finalMeetingCode}`);
     } catch (err) {
@@ -156,6 +192,42 @@ export function SessionPage() {
           value={meetingCode}
           onChange={(event) => setMeetingCode(event.target.value)}
         />
+        
+        <div className="agenda-section" style={{ margin: '16px 0' }}>
+          <label htmlFor="agenda-file" style={{ 
+            display: 'block', 
+            marginBottom: '8px', 
+            color: '#00ffff',
+            fontSize: '0.9em'
+          }}>
+            📄 アジェンダファイル (オプション)
+          </label>
+          <input
+            id="agenda-file"
+            type="file"
+            accept=".txt"
+            onChange={handleAgendaSelect}
+            style={{
+              width: '100%',
+              padding: '8px',
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              border: '1px solid #00ffff',
+              borderRadius: '4px',
+              color: '#00ffff',
+              fontSize: '0.9em'
+            }}
+          />
+          {selectedAgenda && (
+            <p style={{ 
+              margin: '8px 0 0 0', 
+              fontSize: '0.8em', 
+              color: '#4caf50' 
+            }}>
+              ✓ 選択済み: {selectedAgenda.name}
+            </p>
+          )}
+        </div>
+        
         <button type="submit" disabled={joining || status === 'connecting'}>
           {joining ? '接続中…' : '入室する'}
         </button>
