@@ -64,8 +64,18 @@ export function useVonageSession({
       return;
     }
 
-    // Check if credentials look like mock data
-    if (apiKey === 'mock_api_key' || sessionId.includes('mock') || token.startsWith('T1==')) {
+    // Check if credentials look like mock data (more precise detection)
+    const isMockCredentials = apiKey === 'mock_api_key' || 
+                             (sessionId.includes('mock') && sessionId.startsWith('1_MX40')) || 
+                             token.startsWith('T1==');
+    
+    console.log('📋 Credential Validation:');
+    console.log('  - API Key Check:', apiKey === 'mock_api_key' ? 'MOCK' : 'REAL');
+    console.log('  - Session ID Check:', sessionId.includes('mock') ? 'CONTAINS_MOCK' : 'REAL');
+    console.log('  - Token Check:', token.startsWith('T1==') ? 'MOCK' : 'REAL');
+    console.log('  - Overall Assessment:', isMockCredentials ? 'MOCK_DATA' : 'REAL_DATA');
+    
+    if (isMockCredentials) {
       setStatus('error');
       setError('モック認証情報が検出されました。実際のVonage APIキーを設定してください。');
       console.error('[useVonageSession] Mock credentials detected');
@@ -82,6 +92,8 @@ export function useVonageSession({
     console.log('  - API Key:', apiKey.substring(0, 8) + '...');
     console.log('  - Session ID:', sessionId.substring(0, 20) + '...');
     console.log('  - Token Length:', token.length);
+    console.log('  - Token Type:', token.startsWith('eyJ') ? 'JWT' : 'Other');
+    console.log('  - Session ID Type:', sessionId.startsWith('1_MX') || sessionId.startsWith('2_MX') ? 'Vonage' : 'Other');
     
     setStatus('connecting');
     setError(null);
