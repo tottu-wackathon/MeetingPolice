@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { LiveTranscript } from '../types';
 
 const buildWsUrl = (meetingId: string) => {
@@ -121,33 +122,35 @@ export function useTranscripts(
             
             console.log(`[useTranscripts] Processing transcript (${resolvedAction}):`, { ...entry, transcript: transcriptText.slice(0, 60) });
             
-            setTranscripts((prev) => {
-              if (resolvedAction === 'update' && entry.index !== undefined) {
-                // Update existing entry with same index
-                const updated = prev.map(item => 
-                  item.index === entry.index ? { ...item, ...entry } : item
-                );
-                console.log('[useTranscripts] Updated existing transcript at index:', entry.index);
-                return updated;
-              } else if (isFinalize && entry.index !== undefined) {
-                // Finalize existing entry
-                const updated = prev.map(item => 
-                  item.index === entry.index ? { ...item, ...entry, isPartial: false } : item
-                );
-                console.log('[useTranscripts] Finalized transcript at index:', entry.index);
-                return updated;
-              } else {
-                // Add new entry（append/new）: index重複は上書き
-                if (entry.index !== undefined && prev.some(item => item.index === entry.index)) {
+            flushSync(() => {
+              setTranscripts((prev) => {
+                if (resolvedAction === 'update' && entry.index !== undefined) {
+                  // Update existing entry with same index
                   const updated = prev.map(item => 
                     item.index === entry.index ? { ...item, ...entry } : item
                   );
-                  console.log('[useTranscripts] Replaced existing transcript at index:', entry.index);
+                  console.log('[useTranscripts] Updated existing transcript at index:', entry.index);
                   return updated;
+                } else if (isFinalize && entry.index !== undefined) {
+                  // Finalize existing entry
+                  const updated = prev.map(item => 
+                    item.index === entry.index ? { ...item, ...entry, isPartial: false } : item
+                  );
+                  console.log('[useTranscripts] Finalized transcript at index:', entry.index);
+                  return updated;
+                } else {
+                  // Add new entry（append/new）: index重複は上書き
+                  if (entry.index !== undefined && prev.some(item => item.index === entry.index)) {
+                    const updated = prev.map(item => 
+                      item.index === entry.index ? { ...item, ...entry } : item
+                    );
+                    console.log('[useTranscripts] Replaced existing transcript at index:', entry.index);
+                    return updated;
+                  }
+                  console.log('[useTranscripts] Adding new transcript entry');
+                  return [entry, ...prev].slice(0, 50);
                 }
-                console.log('[useTranscripts] Adding new transcript entry');
-                return [entry, ...prev].slice(0, 50);
-              }
+              });
             });
           } catch (err) {
             console.warn('Failed to parse transcript payload', err);
