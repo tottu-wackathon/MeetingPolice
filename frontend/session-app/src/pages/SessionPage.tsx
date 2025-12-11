@@ -22,7 +22,7 @@ export function SessionPage() {
   } = useMeetingSession();
 
   const [realtimeClassifications, setRealtimeClassifications] = useState<
-    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean }>
+    Array<{ index: number; text: string; speaker: string; category: string; alignment: number; method: string; is_final?: boolean; is_partial?: boolean }>
   >([]);
   const [speakerStats, setSpeakerStats] = useState<Array<{ speaker: string; count: number; percentage: number; isNew?: boolean }>>([]);
   const knownSpeakersRef = useRef<Set<string>>(new Set());
@@ -33,18 +33,34 @@ export function SessionPage() {
     session?.meetingId,
     (payload) => {
       // リアルタイム分析結果を受信
-      const { index, text, speaker, category, alignment, method, is_final } = payload;
+      const { index, text, speaker, category, alignment, method, is_final, is_partial } = payload;
       
       setRealtimeClassifications((prev) => {
+        // 部分結果の場合、同じテキストの重複を避ける
+        if (is_partial) {
+          const duplicateIndex = prev.findIndex((item) => 
+            item.text === text && 
+            item.speaker === speaker && 
+            item.is_partial === true
+          );
+          
+          if (duplicateIndex >= 0) {
+            // 既存の部分結果を更新
+            const updated = [...prev];
+            updated[duplicateIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial };
+            return updated;
+          }
+        }
+        
         const existingIndex = prev.findIndex((item) => item.index === index);
         
         if (existingIndex >= 0) {
           const updated = [...prev];
-          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final };
+          updated[existingIndex] = { index, text, speaker, category, alignment, method, is_final, is_partial };
           return updated;
         }
         
-        return [...prev, { index, text, speaker, category, alignment, method, is_final }];
+        return [...prev, { index, text, speaker, category, alignment, method, is_final, is_partial }].slice(-100); // 最新100件に制限
       });
     },
     isMuted // ミュート状態を渡す
@@ -626,22 +642,33 @@ export function SessionPage() {
 
               <div className="transcript-feed" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 {realtimeClassifications
-                  .filter(item => item.text.length >= 10)
+                  .filter(item => item.text.length >= 5) // 部分結果も表示するため閾値を下げる
                   .slice().reverse()
                   .map((item, index) => {
                     const isFinal = item.is_final === true;
-                    const icon = isFinal ? '✅' : '📊';
+                    const isPartial = item.is_partial === true;
+                    const icon = isFinal ? '✅' : isPartial ? '⏳' : '📊';
                     const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
+                    
+                    // AI分析状態の表示
+                    let aiStatus = null;
+                    if (item.method === 'bedrock' && isFinal) {
+                      aiStatus = <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>;
+                    } else if (item.method === 'keyword' && !isPartial) {
+                      aiStatus = <span className="pill" style={{ backgroundColor: '#ff9800', color: 'white' }}>AI暫定</span>;
+                    } else if (isPartial) {
+                      aiStatus = <span className="pill" style={{ backgroundColor: '#9e9e9e', color: 'white' }}>部分</span>;
+                    }
 
                     return (
-                      <article key={index} className="transcript-item">
+                      <article key={`${item.index}-${index}`} className="transcript-item" style={{ opacity: isPartial ? 0.7 : 1 }}>
                         <header>
                           <strong>{displaySpeaker(item.speaker)}</strong>
                           <span className="pill">{item.category}</span>
                           <span className="pill" style={{ backgroundColor: bgColor }}>
                             {icon} {item.alignment}%
                           </span>
-                          {isFinal && <span className="pill" style={{ backgroundColor: '#2196f3', color: 'white' }}>AI確定</span>}
+                          {aiStatus}
                         </header>
                         <p>{item.text}</p>
                       </article>

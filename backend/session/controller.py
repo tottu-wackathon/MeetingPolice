@@ -182,6 +182,17 @@ class SessionController:
                     asyncio.create_task(self._handle_result_streaming(
                         session_data, result_id, speaker_label, raw_speaker, transcript, not is_partial, websocket
                     ))
+                    
+                    # Also trigger analysis for partial results if text is substantial
+                    if is_partial and len(transcript.strip()) >= 15:
+                        # Get a unique index for this partial result
+                        partial_index = session_data.get('next_partial_index', 10000)
+                        session_data['next_partial_index'] = partial_index + 1
+                        
+                        # Trigger partial analysis
+                        asyncio.create_task(self._classify_and_send_realtime(
+                            websocket, session_data["meeting_id"], transcript, speaker_label, partial_index, is_partial=True
+                        ))
                         
                 except Exception as e:
                     self.logger.error("Error processing transcript result: %s", e)
@@ -471,7 +482,7 @@ class SessionController:
         
         return session_data["speaker_labels"][raw_label]
 
-    async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int) -> None:
+    async def _classify_and_send_realtime(self, websocket: WebSocket, meeting_id: str, text: str, speaker: str, index: int, is_partial: bool = False) -> None:
         """Perform real-time classification like poc_satomin."""
         # Skip short texts
         text_stripped = text.strip()
@@ -497,7 +508,8 @@ class SessionController:
             "category": category_quick,
             "alignment": alignment_quick,
             "method": "keyword",
-            "is_final": False
+            "is_final": False,
+            "is_partial": is_partial
         }
         
         # Send quick result
@@ -506,10 +518,11 @@ class SessionController:
             "payload": result_quick
         })
         
-        # Step 2: Background Bedrock analysis
-        task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
-        session_data["pending_bedrock_tasks"].add(task)
-        task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+        # Step 2: Background Bedrock analysis (only for non-partial results to avoid overload)
+        if not is_partial:
+            task = asyncio.create_task(self._classify_with_bedrock(session_data, text, speaker, index, websocket))
+            session_data["pending_bedrock_tasks"].add(task)
+            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
 
     async def _classify_with_bedrock(self, session_data: dict, text: str, speaker: str, index: int, websocket: WebSocket) -> None:
         """Bedrock classification in background."""
@@ -550,7 +563,8 @@ class SessionController:
                     "category": category_ai,
                     "alignment": alignment_ai,
                     "method": "bedrock",
-                    "is_final": True
+                    "is_final": True,
+                    "is_partial": False
                 }
                 
                 # Send AI result
@@ -573,7 +587,8 @@ class SessionController:
                     "category": category_fallback,
                     "alignment": alignment_fallback,
                     "method": "keyword",
-                    "is_final": True
+                    "is_final": True,
+                    "is_partial": False
                 }
                 
                 await websocket.send_json({
