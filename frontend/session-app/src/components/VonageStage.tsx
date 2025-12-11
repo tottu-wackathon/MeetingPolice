@@ -288,22 +288,15 @@ export function VonageStage({
         console.log('[VonageStage] Token analysis failed:', e);
       }
       
-      session.connect(token)
-        .then(() => {
-          console.log('[VonageStage] Connected successfully, publishing...');
-          return session.publish(publisher);
-        })
-        .then(() => {
-          console.log('[VonageStage] Published successfully');
-        })
-        .catch((err: any) => {
-          console.error('[VonageStage] Connection or publish failed:', err);
+      session.connect(token, (err: any) => {
+        if (err) {
+          console.error('[VonageStage] Connection failed with error:', err);
           console.error('[VonageStage] Error code:', err.code);
           console.error('[VonageStage] Error message:', err.message);
           console.error('[VonageStage] Error name:', err.name);
           console.error('[VonageStage] Full error object:', JSON.stringify(err, null, 2));
           
-          // Vonage エラーコードの詳細
+          // OpenTok エラーコードの詳細
           const errorMessages: { [key: number]: string } = {
             1004: 'Invalid token format - トークンの形式が無効です',
             1005: 'Invalid session ID - セッションIDが無効です',
@@ -317,7 +310,19 @@ export function VonageStage({
           
           setStatus('error');
           setError(`${detailedMessage}: ${err.message || String(err)}`);
+          return;
+        }
+        
+        console.log('[VonageStage] Connected successfully, publishing...');
+        session.publish(publisher, (pubErr: any) => {
+          if (pubErr) {
+            console.error('[VonageStage] Publish failed:', pubErr);
+            setError(pubErr.message || String(pubErr));
+          } else {
+            console.log('[VonageStage] Published successfully');
+          }
         });
+      });
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Vonage 接続に失敗しました');
