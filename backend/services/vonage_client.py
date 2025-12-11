@@ -6,13 +6,12 @@ import logging
 from pathlib import Path
 
 try:
-    import vonage
-    from vonage_video import VideoClient
+    from vonage import Vonage, Auth
     VONAGE_AVAILABLE = True
 except ImportError:
     VONAGE_AVAILABLE = False
-    vonage = None
-    VideoClient = None
+    Vonage = None
+    Auth = None
 
 from backend.config import get_settings
 
@@ -32,11 +31,12 @@ class VonageClient:
         if VONAGE_AVAILABLE and self.application_id and self.api_key and self._load_private_key():
             try:
                 # Initialize Vonage client with JWT authentication
-                self.client = vonage.Client(
+                auth = Auth(
                     application_id=self.application_id,
                     private_key=self.private_key_content
                 )
-                self.video_client = VideoClient(self.client)
+                self.client = Vonage(auth=auth)
+                self.video_client = self.client.video
                 self.auth_method = "jwt"
                 self.is_mock_mode = False
                 self.logger.info("✅ Vonage Video API initialized with Python Server SDK v4.7.2 and JWT authentication")
@@ -94,10 +94,7 @@ class VonageClient:
             self.logger.info("🚀 Creating real Vonage session with Python Server SDK v4.7.2...")
             
             # Create session with new SDK API
-            session = self.video_client.create_session(
-                media_mode='routed',  # Use routed mode for better scalability
-                archive_mode='manual'  # Manual archive mode
-            )
+            session = self.video_client.create_session()
             session_id = session.session_id
             
             self.logger.info("✅ Real Vonage session created successfully!")
@@ -137,7 +134,7 @@ class VonageClient:
             # Generate token with Vonage Video Python Server SDK v4.7.2
             expire_time = int(time.time()) + ttl_seconds
             
-            token = self.video_client.generate_token(
+            token = self.video_client.generate_client_token(
                 session_id=session_id,
                 role='publisher',  # Can publish and subscribe
                 expire_time=expire_time,
