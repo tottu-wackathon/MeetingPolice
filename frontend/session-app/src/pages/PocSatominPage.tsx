@@ -1004,6 +1004,7 @@ export function PocSatominPage() {
             <div className="transcript-feed" style={{ maxHeight: '500px', overflowY: 'auto' }}>
               {realtimeClassifications
                 .filter(item => item.text.length >= 10)
+                .reverse() // 最新が上に表示されるように逆順にする
                 .map((item, index) => {
                   const isFinal = item.is_final === true;
                   const icon = isFinal ? '✅' : '📊';

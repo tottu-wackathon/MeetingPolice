@@ -701,6 +701,7 @@ export function SessionPage() {
               .filter(item => item.text && item.text.length >= 5) // テスト用に5文字以上に変更
               // 最新の10件のみ表示（パフォーマンス向上）
               .slice(-10)
+              .reverse() // 最新が上に表示されるように逆順にする
               .map((item, arrayIndex) => {
                 const isFinal = item.is_final === true;
                 const icon = isFinal ? '✅' : '📊';

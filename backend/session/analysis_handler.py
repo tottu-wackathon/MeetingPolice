@@ -21,6 +21,8 @@ class AnalysisHandler:
         # PoliceDispatchManagerのインスタンスを保持
         from backend.session.police_dispatch import PoliceDispatchManager
         self.police_dispatch = PoliceDispatchManager()
+        # Bedrock分析結果のキャッシュ（重複分析を防ぐ）
+        self.bedrock_cache = {}
     
     async def classify_and_send_realtime(
         self, 
@@ -109,6 +111,34 @@ class AnalysisHandler:
         index: int
     ) -> None:
         """Bedrock分析（バックグラウンド）"""
+        # テキストの正規化（空白や句読点の違いを吸収）
+        normalized_text = self._normalize_text_for_cache(text)
+        cache_key = f"{normalized_text}_{session_data['meeting_id']}"
+        
+        # キャッシュチェック
+        if cache_key in self.bedrock_cache:
+            cached_result = self.bedrock_cache[cache_key]
+            self.logger.info(f"🔄 Bedrock結果をキャッシュから取得: {speaker} - {text[:30]}... → [{cached_result['category']}] {cached_result['alignment']}%")
+            
+            # キャッシュ結果を使用して更新
+            result_cached = {
+                "index": index,
+                "text": text,
+                "speaker": speaker,
+                "category": cached_result['category'],
+                "alignment": cached_result['alignment'],
+                "method": "bedrock_cached",  # キャッシュ使用
+                "is_final": True
+            }
+            
+            await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_cached})
+            
+            # 警察出動チェック
+            await self.police_dispatch.check_and_trigger(
+                session_data, cached_result['alignment'], text, speaker, cached_result['category']
+            )
+            return
+        
         self.logger.info(f"🔍 Bedrock analysis start: {speaker} - {text[:30]}...")
         try:
             # 文脈を取得（前後の発言）
@@ -167,6 +197,18 @@ class AnalysisHandler:
                 self.logger.info(f"📤 WebSocketキューに送信: {queue_message}")
                 
                 self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
+                
+                # 結果をキャッシュに保存
+                normalized_text = self._normalize_text_for_cache(text)
+                cache_key = f"{normalized_text}_{session_data['meeting_id']}"
+                self.bedrock_cache[cache_key] = {
+                    'category': category_ai,
+                    'alignment': alignment_ai
+                }
+                
+                # 定期的にキャッシュクリーンアップ
+                if len(self.bedrock_cache) % 20 == 0:  # 20件ごとにチェック
+                    self._cleanup_bedrock_cache()
                 
                 # 警察出動チェック（Bedrockで確定した結果のみ）
                 await self.police_dispatch.check_and_trigger(
@@ -328,3 +370,40 @@ class AnalysisHandler:
                 return True
         
         return False
+    
+    def _normalize_text_for_cache(self, text: str) -> str:
+        """
+        キャッシュ用にテキストを正規化
+        空白、句読点、語尾の違いを吸収して同じ内容を識別
+        """
+        import re
+        
+        # 小文字に変換
+        normalized = text.lower()
+        
+        # 句読点・記号を除去
+        normalized = re.sub(r'[。、！？.,!?]', '', normalized)
+        
+        # 連続する空白を単一空白に
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # 前後の空白を除去
+        normalized = normalized.strip()
+        
+        # 語尾の揺れを統一（「です」「だ」「である」等）
+        normalized = re.sub(r'(です|だ|である|ます|だよ|だね|ですね)$', '', normalized)
+        
+        return normalized
+    
+    def _cleanup_bedrock_cache(self, max_entries: int = 100):
+        """
+        Bedrockキャッシュのクリーンアップ
+        メモリ使用量を制限するため古いエントリを削除
+        """
+        if len(self.bedrock_cache) > max_entries:
+            # 古いエントリを削除（簡易的にランダムに半分削除）
+            import random
+            keys_to_remove = random.sample(list(self.bedrock_cache.keys()), len(self.bedrock_cache) // 2)
+            for key in keys_to_remove:
+                del self.bedrock_cache[key]
+            self.logger.info(f"🧹 Bedrockキャッシュクリーンアップ: {len(keys_to_remove)}件削除, 残り{len(self.bedrock_cache)}件")
