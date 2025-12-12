@@ -81,45 +81,29 @@ class AnalysisHandler:
                     return
         
         self.logger.info(f"📊 Real-time analysis start: {speaker} - {text[:30]}...")
-        
-        # Step 1: キーワードベースの簡易分類（即座に返す）
+        # Step 1: キーワードベースの簡易分類を送信（リアルタイム表示用）
         category_quick = _guess_category(text)
         alignment_quick = self.calculate_alignment(text, session_data["agenda_text"])
-        
-        # コメント・相槌の場合は一致度を50%に設定
-        if category_quick == "コメント":
-            alignment_quick = 50  # コメントは50%
-        elif category_quick == "感想・意見":
-            alignment_quick = 40  # 感想・意見は40%（議題に関連する可能性あり）
-        elif category_quick == "無関係な雑談":
-            alignment_quick = 5  # 無関係な雑談は5%
-
         result_quick = {
             "index": index,
             "text": text,
             "speaker": speaker,
             "category": category_quick,
             "alignment": alignment_quick,
-            "method": "keyword",  # キーワードベース
-            "is_final": not force_bedrock  # Bedrockに送らない場合はこれを確定扱いにする
+            "method": "keyword",
+            "is_final": False,
         }
-
-        # すぐにクライアントに通知
-        queue_message_quick = {"type": "realtime_classification", "payload": result_quick}
-        await session_data["queue"].put(queue_message_quick)
-        self.logger.info(f"📤 WebSocketキューに送信（キーワード）: {queue_message_quick}")
+        await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
+        self.logger.info(f"📤 WebSocketキューに送信（キーワード速報）: {result_quick}")
         
-        # Step 2: バックグラウンドでBedrockに送信（条件付き）
-        if force_bedrock:
-            try:
-                task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
-                session_data["pending_bedrock_tasks"].add(task)
-                task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
-                self.logger.info(f"📊 Bedrock分析開始: '{text[:20]}...' ({len(text)}文字)")
-            except Exception as e:
-                self.logger.warning(f"Failed to create Bedrock task: {e}")
-        else:
-            self.logger.debug(f"📊 Bedrock分析スキップ: '{text[:20]}...' ({len(text)}文字)")
+        # Step 2: Bedrockでアジェンダとの一致度を20-100%で採点
+        try:
+            task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
+            session_data["pending_bedrock_tasks"].add(task)
+            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+            self.logger.info(f"📊 Bedrock分析開始: '{text[:20]}...' ({len(text)}文字)")
+        except Exception as e:
+            self.logger.warning(f"Failed to create Bedrock task: {e}")
     
     async def _classify_with_bedrock_session(
         self, 
@@ -165,6 +149,9 @@ class AnalysisHandler:
                 result = classified[0]
                 category_ai = result.get("category", _guess_category(text))
                 alignment_ai = result.get("alignment", 0)
+
+                # Bedrockからのスコアは20〜100%に丸める
+                alignment_ai = max(20, min(100, alignment_ai if isinstance(alignment_ai, (int, float)) else 0))
                 
                 # コメントカテゴリの場合は最低50%を保証
                 if category_ai == "コメント" and alignment_ai < 50:
@@ -197,6 +184,7 @@ class AnalysisHandler:
                 self.logger.warning("⚠️ Bedrockから結果なし、キーワードベースを確定として送信")
                 category_fallback = _guess_category(text)
                 alignment_fallback = self.calculate_alignment(text, session_data["agenda_text"])
+                alignment_fallback = max(20, min(100, alignment_fallback))
                 
                 result_fallback = {
                     "index": index,
