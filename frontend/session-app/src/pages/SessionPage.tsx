@@ -77,14 +77,31 @@ export function SessionPage() {
           return prev; // 空のテキストの場合は追加しない
         }
         
-        // 同じindexの全てのエントリを削除（古いキーワード結果を除去）
-        const filteredPrev = prev.filter(item => item.index !== index);
+        // 既存の同じindexをマージし、Bedrock確定が来たら上書きされないように保護
+        const existing = prev.find(item => item.index === index);
+        const baseList = prev.filter(item => item.index !== index);
+
+        let merged = { index, text, speaker, category, alignment: alignmentValue, method, is_final: isFinal, action };
+
+        if (existing) {
+          // 既存がBedrock確定なら、それを優先して保持する
+          if (existing.is_final && existing.method === 'bedrock') {
+            merged = {
+              ...merged,
+              ...existing,
+              // ベース情報は新規payloadで最新化（話者・テキストなど）
+              speaker,
+              text,
+              action,
+            };
+          } else {
+            merged = { ...existing, ...merged };
+          }
+        }
+
+        console.log('[SessionPage] Adding new entry:', merged);
         
-        // 新しいエントリを追加
-        const newEntry = { index, text, speaker, category, alignment: alignmentValue, method, is_final: isFinal, action };
-        console.log('[SessionPage] Adding new entry:', newEntry);
-        
-        return [...filteredPrev, newEntry];
+        return [...baseList, merged];
       });
     },
     isMuted // ミュート状態を渡す
