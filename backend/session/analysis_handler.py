@@ -6,7 +6,6 @@ SessionControllerから分離された分析関連の処理
 import asyncio
 import logging
 import re
-from typing import Dict, Any, List
 
 from backend.services.bedrock_utils import classify_transcript_segments, _guess_category
 
@@ -18,9 +17,6 @@ class AnalysisHandler:
     
     def __init__(self):
         self.logger = logger
-        # PoliceDispatchManagerのインスタンスを保持
-        from backend.session.police_dispatch import PoliceDispatchManager
-        self.police_dispatch = PoliceDispatchManager()
         # Bedrock分析結果のキャッシュ（重複分析を防ぐ）
         self.bedrock_cache = {}
     
@@ -132,11 +128,6 @@ class AnalysisHandler:
             }
             
             await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_cached})
-            
-            # 警察出動チェック
-            await self.police_dispatch.check_and_trigger(
-                session_data, cached_result['alignment'], text, speaker, cached_result['category']
-            )
             return
         
         self.logger.info(f"🔍 Bedrock analysis start: {speaker} - {text[:30]}...")
@@ -216,9 +207,6 @@ class AnalysisHandler:
                     self._cleanup_bedrock_cache()
                 
                 # 警察出動チェック（Bedrockで確定した結果のみ）
-                await self.police_dispatch.check_and_trigger(
-                    session_data, alignment_ai, text, speaker, category_ai
-                )
             else:
                 # Bedrockが失敗したら、キーワードベースの結果を「確定」として送る
                 self.logger.warning("⚠️ Bedrockから結果なし、キーワードベースを確定として送信")
@@ -237,11 +225,6 @@ class AnalysisHandler:
                 
                 await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_fallback})
                 self.logger.info(f"✅ キーワード分析確定: {speaker} - {text[:30]}... → [{category_fallback}] {alignment_fallback}%")
-                
-                # 警察出動チェック（フォールバック結果）
-                await self.police_dispatch.check_and_trigger(
-                    session_data, alignment_fallback, text, speaker, category_fallback
-                )
         
         except Exception as e:
             self.logger.error(f"❌ Bedrock分析失敗: {e}")

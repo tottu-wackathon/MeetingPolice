@@ -1,13 +1,19 @@
 """
-Lambda関数呼び出しサービス
-警察出動時の緊急通知処理を行う
+Lambda関数呼び出しサービス（指定のタイミングのみ）
+
+呼び出しタイミング:
+1. UIで「警察出動」が表示された直後にデバイス3754-4414をON
+2. 1の5秒後に自動でOFFし、その後30秒間は再度ONを呼ばない
+3. result画面に遷移し平均一致度60%以上のときにデバイス4378-7530をON
+4. result画面から最初の画面へ戻る操作でデバイス4378-7530をOFF
 """
 
 import json
 import logging
+import threading
 import time
-from datetime import datetime
 from typing import Any, Dict
+
 import boto3
 from botocore.exceptions import ClientError
 
@@ -16,503 +22,149 @@ from backend.utils.time_utils import now_iso
 
 
 class LambdaClient:
+    POLICE_DEVICE_ON_URL = "https://obniz.com/obniz/3754-4414/message?data=on"
+    POLICE_DEVICE_OFF_URL = "https://obniz.com/obniz/3754-4414/message?data=off"
+    RESULT_DEVICE_ON_URL = "https://obniz.com/obniz/4378-7530/message?data=on"
+    RESULT_DEVICE_OFF_URL = "https://obniz.com/obniz/4378-7530/message?data=off"
+
+    AUTO_OFF_DELAY_SECONDS = 5
+    POLICE_COOLDOWN_SECONDS = 30
+
     def __init__(self):
         self.settings = get_settings()
         self.logger = logging.getLogger(__name__)
-        
-        # AWS Lambda クライアントを初期化
+        self.function_name = "obniz2"
+
         try:
             self.lambda_client = boto3.client(
-                'lambda',
+                "lambda",
                 region_name=self.settings.aws_region,
                 aws_access_key_id=self.settings.aws_access_key_id,
-                aws_secret_access_key=self.settings.aws_secret_access_key
+                aws_secret_access_key=self.settings.aws_secret_access_key,
             )
             self.logger.info("✅ Lambda client initialized successfully")
-        except Exception as e:
-            self.logger.error(f"❌ Failed to initialize Lambda client: {e}")
+        except Exception as exc:
+            self.logger.error("❌ Failed to initialize Lambda client: %s", exc)
             self.lambda_client = None
 
-    def invoke_police_dispatch(self, meeting_data: Dict[str, Any]) -> Dict[str, Any]:
+        # ①→②のクールダウン管理
+        self._lock = threading.Lock()
+        self._next_police_on_allowed_at = 0.0
+
+    def trigger_police_dispatch(self) -> Dict[str, Any]:
         """
-        警察出動Lambda関数を呼び出す（obniz2でLED点灯）
-        
-        Args:
-            meeting_data: 会議データ（警察出動ON用）
-            
-        Returns:
-            Lambda関数の実行結果
+        ① UIで「警察出動」が表示された直後に呼び出す。
+        すぐにONを送信し、5秒後にOFFを自動送信。OFF送信後30秒間は再度ONを呼ばない。
         """
-        if not self.lambda_client:
-            self.logger.warning("⚠️ Lambda client not available, returning mock response")
-            return {
-                "statusCode": 200,
-                "message": "Mock police dispatch (LED ON) sent",
-                "dispatchId": f"mock-dispatch-{meeting_data.get('meeting_id', 'unknown')}"
-            }
+        now_ts = time.time()
+        with self._lock:
+            remaining = self._next_police_on_allowed_at - now_ts
+            if remaining > 0:
+                cooldown_seconds = round(max(0.0, remaining), 2)
+                self.logger.info("🚫 Police dispatch suppressed during cooldown (remaining=%ss)", cooldown_seconds)
+                return {
+                    "statusCode": 429,
+                    "message": f"Police dispatch suppressed during cooldown ({cooldown_seconds}s remaining)",
+                    "cooldown_seconds_remaining": cooldown_seconds,
+                }
 
-        function_name = "obniz2"
-        
-        # obniz2 Lambda関数に渡すペイロード（LED点灯 + 10秒後自動消灯）
-        payload = {
-            "url": "https://obniz.com/obniz/3754-4414/message?data=on",
-            "auto_off_seconds": 10  # 10秒後に自動消灯
-        }
-
-        # 詳細ログ記録開始
-        invocation_start_time = time.time()
-        invocation_timestamp = now_iso()
-        
-        try:
-            # 呼び出し前ログ
-            self.logger.info("=" * 80)
-            self.logger.info("🚨 LAMBDA INVOCATION START - POLICE DISPATCH (LED ON)")
-            self.logger.info("=" * 80)
-            self.logger.info(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.info(f"🔧 Function Name: {function_name}")
-            self.logger.info(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.info(f"👤 Speaker: {meeting_data.get('speaker', 'N/A')}")
-            self.logger.info(f"📊 Alignment Score: {meeting_data.get('alignment_score', 'N/A')}%")
-            self.logger.info(f"💬 Recent Transcript: {meeting_data.get('recent_transcript', 'N/A')[:100]}...")
-            self.logger.info(f"🌐 Target URL: {payload['url']}")
-            self.logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.info(f"🔄 Invocation Type: Event (Asynchronous)")
-            self.logger.info("-" * 80)
-
-            # Lambda関数を非同期で呼び出し
-            response = self.lambda_client.invoke(
-                FunctionName=function_name,
-                InvocationType='Event',  # 非同期呼び出し
-                Payload=json.dumps(payload)
+            self.logger.info(
+                "🚨 Triggering police dispatch ON → OFF (auto in %ss, cooldown %ss)",
+                self.AUTO_OFF_DELAY_SECONDS,
+                self.POLICE_COOLDOWN_SECONDS,
             )
 
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
+            on_result = self._invoke_obniz(self.POLICE_DEVICE_ON_URL, "police_dispatch_on")
 
-            result = {
-                "statusCode": response['StatusCode'],
-                "message": "Police dispatch LED turned ON successfully (auto OFF in 10s)",
-                "dispatchId": f"dispatch-{meeting_data.get('meeting_id')}-{int(time.time())}",
-                "function_name": function_name,
-                "invocation_type": "Event",
-                "led_status": "ON",
-                "auto_off_seconds": 10,
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
+            # OFFは別スレッドで5秒後に実行
+            timer = threading.Timer(self.AUTO_OFF_DELAY_SECONDS, self._auto_off_police_dispatch)
+            timer.daemon = True
+            timer.start()
+
+            return {
+                **on_result,
+                "auto_off_scheduled_seconds": self.AUTO_OFF_DELAY_SECONDS,
+                "next_on_cooldown_seconds": self.POLICE_COOLDOWN_SECONDS,
             }
 
-            # 成功ログ
-            self.logger.info("✅ LAMBDA INVOCATION SUCCESS - POLICE DISPATCH (LED ON)")
-            self.logger.info(f"📈 Status Code: {response['StatusCode']}")
-            self.logger.info(f"🆔 Dispatch ID: {result['dispatchId']}")
-            self.logger.info(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.info(f"🔴 LED Status: ON")
-            self.logger.info(f"📋 Response Headers: {response.get('ResponseMetadata', {})}")
-            self.logger.info("=" * 80)
+    def _auto_off_police_dispatch(self) -> None:
+        """② ON送信後5秒でOFFを送信し、以後30秒は再度ONを送らない"""
+        try:
+            off_result = self._invoke_obniz(self.POLICE_DEVICE_OFF_URL, "police_dispatch_off_auto")
+            self.logger.info("🟢 Police dispatch auto OFF sent: %s", off_result)
+        finally:
+            with self._lock:
+                self._next_police_on_allowed_at = time.time() + self.POLICE_COOLDOWN_SECONDS
+                self.logger.info(
+                    "⏲️ Police dispatch cooldown started (%ss)", self.POLICE_COOLDOWN_SECONDS
+                )
 
-            return result
+    def trigger_result_led(self, turn_on: bool) -> Dict[str, Any]:
+        """
+        ③/④ result画面用のLED制御。
+        turn_on=True  -> 4378-7530 を ON
+        turn_on=False -> 4378-7530 を OFF
+        """
+        url = self.RESULT_DEVICE_ON_URL if turn_on else self.RESULT_DEVICE_OFF_URL
+        label = "result_led_on" if turn_on else "result_led_off"
+        self.logger.info("🎉 Result LED control: %s", label)
+        return self._invoke_obniz(url, label)
 
-        except ClientError as e:
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            
-            # エラーログ
-            self.logger.error("❌ LAMBDA INVOCATION FAILED - POLICE DISPATCH (LED ON)")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.error(f"⚠️ Error Code: {error_code}")
-            self.logger.error(f"💥 Error Message: {error_message}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error(f"🔍 Full Error Response: {e.response}")
-            self.logger.error("=" * 80)
-            
+    def _invoke_obniz(self, url: str, label: str) -> Dict[str, Any]:
+        """obniz2 Lambdaを非同期(Event)で呼び出す共通処理"""
+        invocation_start = time.time()
+        invocation_timestamp = now_iso()
+
+        if not self.lambda_client:
+            self.logger.warning("⚠️ Lambda client not available, returning mock response (%s)", label)
+            return {
+                "statusCode": 200,
+                "message": f"Mock invocation for {label}",
+                "url": url,
+                "invocation_timestamp": invocation_timestamp,
+            }
+
+        payload = {"url": url}
+
+        try:
+            response = self.lambda_client.invoke(
+                FunctionName=self.function_name,
+                InvocationType="Event",
+                Payload=json.dumps(payload),
+            )
+
+            execution_time_ms = round((time.time() - invocation_start) * 1000, 2)
+
+            return {
+                "statusCode": response.get("StatusCode"),
+                "message": f"{label} sent",
+                "url": url,
+                "execution_time_ms": execution_time_ms,
+                "invocation_timestamp": invocation_timestamp,
+                "response_metadata": response.get("ResponseMetadata", {}),
+            }
+
+        except ClientError as exc:
+            execution_time_ms = round((time.time() - invocation_start) * 1000, 2)
+            error_code = exc.response["Error"]["Code"]
+            self.logger.error("❌ Lambda invocation failed (%s): %s", label, error_code)
             return {
                 "statusCode": 500,
                 "error": error_code,
-                "message": f"Failed to invoke obniz2 (LED ON): {error_message}",
-                "dispatchId": None,
-                "led_status": "ERROR",
+                "message": f"Failed to invoke obniz2 for {label}: {exc.response['Error']['Message']}",
+                "url": url,
                 "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
+                "invocation_timestamp": invocation_timestamp,
             }
 
-        except Exception as e:
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            
-            # 予期しないエラーログ
-            self.logger.exception("❌ UNEXPECTED ERROR - POLICE DISPATCH (LED ON)")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.error(f"💥 Exception: {str(e)}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error("=" * 80)
-            
+        except Exception as exc:  # pragma: no cover - 保険
+            execution_time_ms = round((time.time() - invocation_start) * 1000, 2)
+            self.logger.exception("❌ Unexpected error during Lambda invocation (%s)", label)
             return {
                 "statusCode": 500,
                 "error": "UnexpectedError",
-                "message": f"Unexpected error: {str(e)}",
-                "dispatchId": None,
-                "led_status": "ERROR",
+                "message": f"Unexpected error for {label}: {exc}",
+                "url": url,
                 "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-    def invoke_obniz_custom(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        任意のURLを指定してobniz2 Lambdaを呼び出す
-        """
-        if not payload.get("url"):
-            return {"statusCode": 400, "message": "url is required", "led_status": "ERROR"}
-
-        if not self.lambda_client:
-            self.logger.warning("⚠️ Lambda client not available, returning mock response for custom invocation")
-            return {
-                "statusCode": 200,
-                "message": "Mock custom obniz invocation",
-                "led_status": "MOCK",
-                "payload": payload
-            }
-
-        function_name = "obniz2"
-
-        invocation_start_time = time.time()
-        invocation_timestamp = now_iso()
-
-        try:
-            self.logger.info("=" * 80)
-            self.logger.info("🔔 LAMBDA INVOCATION START - CUSTOM OBNIZ2")
-            self.logger.info("=" * 80)
-            self.logger.info(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.info(f"🔧 Function Name: {function_name}")
-            self.logger.info(f"🌐 Target URL: {payload['url']}")
-            self.logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.info(f"🔄 Invocation Type: Event (Asynchronous)")
-            self.logger.info("-" * 80)
-
-            response = self.lambda_client.invoke(
-                FunctionName=function_name,
-                InvocationType='Event',
-                Payload=json.dumps(payload)
-            )
-
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-
-            result = {
-                "statusCode": response['StatusCode'],
-                "message": "Custom obniz2 invocation success",
-                "dispatchId": f"custom-{int(time.time())}",
-                "function_name": function_name,
-                "invocation_type": "Event",
-                "led_status": payload.get("url"),
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-            self.logger.info("✅ LAMBDA INVOCATION SUCCESS - CUSTOM OBNIZ2")
-            self.logger.info(f"📈 Status Code: {response['StatusCode']}")
-            self.logger.info(f"🆔 Dispatch ID: {result['dispatchId']}")
-            self.logger.info(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.info(f"🔔 URL: {payload.get('url')}")
-            self.logger.info(f"📋 Response Headers: {response.get('ResponseMetadata', {})}")
-            self.logger.info("=" * 80)
-
-            return result
-
-        except ClientError as e:
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            self.logger.error("❌ LAMBDA INVOCATION FAILED - CUSTOM OBNIZ2")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"⚠️ Error Code: {error_code}")
-            self.logger.error(f"💥 Error Message: {error_message}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error(f"🔍 Full Error Response: {e.response}")
-            self.logger.error("=" * 80)
-            return {
-                "statusCode": 500,
-                "error": error_code,
-                "message": f"Failed to invoke custom obniz2: {error_message}",
-                "dispatchId": None,
-                "led_status": "ERROR",
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-        except Exception as e:
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            self.logger.exception("❌ UNEXPECTED ERROR - CUSTOM OBNIZ2")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"💥 Exception: {str(e)}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error("=" * 80)
-            return {
-                "statusCode": 500,
-                "error": "UnexpectedError",
-                "message": f"Unexpected error: {str(e)}",
-                "dispatchId": None,
-                "led_status": "ERROR",
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-    def invoke_police_dispatch_off(self, meeting_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        警察出動解除Lambda関数を呼び出す（obniz2でLED消灯）
-        
-        Args:
-            meeting_data: 会議データ（警察出動OFF用）
-            
-        Returns:
-            Lambda関数の実行結果
-        """
-        if not self.lambda_client:
-            self.logger.warning("⚠️ Lambda client not available, returning mock response")
-            return {
-                "statusCode": 200,
-                "message": "Mock police dispatch (LED OFF) sent",
-                "dispatchId": f"mock-dispatch-off-{meeting_data.get('meeting_id', 'unknown')}"
-            }
-
-        function_name = "obniz2"
-        
-        # obniz2 Lambda関数に渡すペイロード（LED消灯）
-        payload = {
-            "url": "https://obniz.com/obniz/3754-4414/message?data=off"
-        }
-
-        # 詳細ログ記録開始
-        invocation_start_time = time.time()
-        invocation_timestamp = now_iso()
-        
-        try:
-            # 呼び出し前ログ
-            self.logger.info("=" * 80)
-            self.logger.info("🟢 LAMBDA INVOCATION START - POLICE DISPATCH OFF (LED OFF)")
-            self.logger.info("=" * 80)
-            self.logger.info(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.info(f"🔧 Function Name: {function_name}")
-            self.logger.info(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.info(f"👤 Speaker: {meeting_data.get('speaker', 'N/A')}")
-            self.logger.info(f"📊 Alignment Score: {meeting_data.get('alignment_score', 'N/A')}%")
-            self.logger.info(f"💬 Recent Transcript: {meeting_data.get('recent_transcript', 'N/A')[:100]}...")
-            self.logger.info(f"🌐 Target URL: {payload['url']}")
-            self.logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.info(f"🔄 Invocation Type: Event (Asynchronous)")
-            self.logger.info("-" * 80)
-
-            # Lambda関数を非同期で呼び出し
-            response = self.lambda_client.invoke(
-                FunctionName=function_name,
-                InvocationType='Event',  # 非同期呼び出し
-                Payload=json.dumps(payload)
-            )
-
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-
-            result = {
-                "statusCode": response['StatusCode'],
-                "message": "Police dispatch LED turned OFF successfully",
-                "dispatchId": f"dispatch-off-{meeting_data.get('meeting_id')}-{int(time.time())}",
-                "function_name": function_name,
-                "invocation_type": "Event",
-                "led_status": "OFF",
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-            # 成功ログ
-            self.logger.info("✅ LAMBDA INVOCATION SUCCESS - POLICE DISPATCH OFF (LED OFF)")
-            self.logger.info(f"📈 Status Code: {response['StatusCode']}")
-            self.logger.info(f"🆔 Dispatch ID: {result['dispatchId']}")
-            self.logger.info(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.info(f"🟢 LED Status: OFF")
-            self.logger.info(f"📋 Response Headers: {response.get('ResponseMetadata', {})}")
-            self.logger.info("=" * 80)
-
-            return result
-
-        except ClientError as e:
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            
-            # エラーログ
-            self.logger.error("❌ LAMBDA INVOCATION FAILED - POLICE DISPATCH OFF (LED OFF)")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.error(f"⚠️ Error Code: {error_code}")
-            self.logger.error(f"💥 Error Message: {error_message}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error(f"🔍 Full Error Response: {e.response}")
-            self.logger.error("=" * 80)
-            
-            return {
-                "statusCode": 500,
-                "error": error_code,
-                "message": f"Failed to invoke obniz2 (LED OFF): {error_message}",
-                "dispatchId": None,
-                "led_status": "ERROR",
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-        except Exception as e:
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            
-            # 予期しないエラーログ
-            self.logger.exception("❌ UNEXPECTED ERROR - POLICE DISPATCH OFF (LED OFF)")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"🏢 Meeting ID: {meeting_data.get('meeting_id', 'N/A')}")
-            self.logger.error(f"💥 Exception: {str(e)}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)}")
-            self.logger.error("=" * 80)
-            
-            return {
-                "statusCode": 500,
-                "error": "UnexpectedError",
-                "message": f"Unexpected error: {str(e)}",
-                "dispatchId": None,
-                "led_status": "ERROR",
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-
-    def invoke_alert_escalation(self, escalation_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        アラートエスカレーションLambda関数を呼び出す
-        
-        Args:
-            escalation_data: エスカレーションデータ
-            
-        Returns:
-            Lambda関数の実行結果
-        """
-        if not self.lambda_client:
-            self.logger.warning("⚠️ Lambda client not available, returning mock response")
-            return {
-                "statusCode": 200,
-                "message": "Mock alert escalation sent",
-                "escalationId": f"mock-escalation-{escalation_data.get('meeting_id', 'unknown')}"
-            }
-
-        function_name = "meeting-alert-escalation-handler"
-        
-        payload = {
-            "action": "alert_escalation",
-            "meeting_id": escalation_data.get("meeting_id"),
-            "escalation_level": escalation_data.get("escalation_level", "MEDIUM"),
-            "previous_alerts": escalation_data.get("previous_alerts", []),
-            "current_alignment": escalation_data.get("current_alignment", 0),
-            "duration_low_alignment": escalation_data.get("duration_low_alignment", 0),
-            "timestamp": escalation_data.get("timestamp"),
-            "recommended_actions": [
-                "Send warning notification",
-                "Schedule intervention",
-                "Prepare police dispatch if needed"
-            ]
-        }
-
-        # 詳細ログ記録開始
-        invocation_start_time = time.time()
-        invocation_timestamp = now_iso()
-        
-        try:
-            # 呼び出し前ログ
-            self.logger.info("=" * 80)
-            self.logger.info("⚠️ LAMBDA INVOCATION START - ALERT ESCALATION")
-            self.logger.info("=" * 80)
-            self.logger.info(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.info(f"🔧 Function Name: {function_name}")
-            self.logger.info(f"🏢 Meeting ID: {escalation_data.get('meeting_id', 'N/A')}")
-            self.logger.info(f"📊 Escalation Level: {escalation_data.get('escalation_level', 'N/A')}")
-            self.logger.info(f"📈 Current Alignment: {escalation_data.get('current_alignment', 'N/A')}%")
-            self.logger.info(f"⏰ Duration Low Alignment: {escalation_data.get('duration_low_alignment', 'N/A')}s")
-            self.logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-            self.logger.info(f"🔄 Invocation Type: RequestResponse (Synchronous)")
-            self.logger.info("-" * 80)
-            
-            response = self.lambda_client.invoke(
-                FunctionName=function_name,
-                InvocationType='RequestResponse',  # 同期呼び出し
-                Payload=json.dumps(payload)
-            )
-
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-
-            # レスポンスを読み取り
-            response_payload = json.loads(response['Payload'].read())
-            
-            result = {
-                "statusCode": response['StatusCode'],
-                "message": "Alert escalation processed successfully",
-                "escalationId": f"escalation-{escalation_data.get('meeting_id')}-{int(time.time())}",
-                "response": response_payload,
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
-            }
-            
-            # 成功ログ
-            self.logger.info("✅ LAMBDA INVOCATION SUCCESS - ALERT ESCALATION")
-            self.logger.info(f"📈 Status Code: {response['StatusCode']}")
-            self.logger.info(f"🆔 Escalation ID: {result['escalationId']}")
-            self.logger.info(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.info(f"📋 Response Payload: {json.dumps(response_payload, ensure_ascii=False, indent=2)}")
-            self.logger.info(f"📋 Response Headers: {response.get('ResponseMetadata', {})}")
-            self.logger.info("=" * 80)
-            
-            return result
-
-        except Exception as e:
-            # 実行時間計算
-            invocation_end_time = time.time()
-            execution_time_ms = round((invocation_end_time - invocation_start_time) * 1000, 2)
-            
-            # エラーログ
-            self.logger.exception("❌ LAMBDA INVOCATION FAILED - ALERT ESCALATION")
-            self.logger.error(f"📅 Timestamp: {invocation_timestamp}")
-            self.logger.error(f"🔧 Function Name: {function_name}")
-            self.logger.error(f"🏢 Meeting ID: {escalation_data.get('meeting_id', 'N/A')}")
-            self.logger.error(f"💥 Exception: {str(e)}")
-            self.logger.error(f"⏱️ Execution Time: {execution_time_ms}ms")
-            self.logger.error(f"📦 Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-            self.logger.error("=" * 80)
-            
-            return {
-                "statusCode": 500,
-                "error": "EscalationError",
-                "message": f"Failed to invoke alert escalation: {str(e)}",
-                "escalationId": None,
-                "execution_time_ms": execution_time_ms,
-                "invocation_timestamp": invocation_timestamp
+                "invocation_timestamp": invocation_timestamp,
             }

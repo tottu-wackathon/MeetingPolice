@@ -36,6 +36,14 @@ def validate_meeting(meeting_id: str):
         ) from exc
 
 
+@router.post("/police-dispatch")
+async def trigger_police_dispatch():
+    try:
+        return await controller.trigger_police_dispatch()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/meetings/{meeting_id}/agenda")
 async def upload_agenda(meeting_id: str, file: UploadFile | None = File(None)):
     try:

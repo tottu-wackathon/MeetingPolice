@@ -2,21 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from typing import Any
 
 from fastapi import WebSocket
-from starlette.websockets import WebSocketDisconnect
 
 from backend.services.vonage_client import VonageClient
 from backend.services.repository import MeetingRepository
-from backend.services.bedrock_utils import classify_transcript_segments
-from backend.utils.time_utils import now_iso
+from backend.services.lambda_client import LambdaClient
 from backend.config import get_settings
 
 # 新しいモジュラーコンポーネント
 from backend.session.speaker_manager import SpeakerManager
-from backend.session.police_dispatch import PoliceDispatchManager
 from backend.session.analysis_handler import AnalysisHandler
 from backend.session.transcription_handler import TranscriptionHandler
 
@@ -27,10 +22,10 @@ class SessionController:
         self.repository = repository or MeetingRepository()
         self.logger = logging.getLogger(__name__)
         self.settings = get_settings()
+        self.lambda_client = LambdaClient()
         
         # モジュラーコンポーネント
         self.speaker_manager = SpeakerManager()
-        self.police_dispatch = PoliceDispatchManager()
         self.analysis_handler = AnalysisHandler()
         self.transcription_handler = TranscriptionHandler()
         
@@ -90,6 +85,11 @@ class SessionController:
             raise ValueError("Meeting not found")
         self.logger.info("Validation success meeting_id=%s", meeting_id)
         return {"meeting_id": meeting.meeting_id, "status": meeting.status, "title": meeting.title}
+
+    async def trigger_police_dispatch(self) -> dict:
+        """フロントからの手動警察出動リクエストをLambdaにそのまま中継"""
+        self.logger.info("🚨 Manual police dispatch trigger requested")
+        return await asyncio.to_thread(self.lambda_client.trigger_police_dispatch)
 
     def set_meeting_agenda(self, meeting_id: str, agenda_text: str) -> dict:
         """ミーティングにアジェンダを設定する"""
@@ -176,7 +176,6 @@ class SessionController:
             "processed_result_ids": set(),
             "pending_bedrock_tasks": set(),
             "agenda_text": agenda_text,
-            "session_start_time": time.time(),  # 警察出動用
         }
         self.session_data[meeting_id] = session_data
 
@@ -230,10 +229,7 @@ class SessionController:
                     except Exception as e:
                         self.logger.warning(f"クリーンアップ中のBedrockタスク失敗: {e}")
                 session_data["pending_bedrock_tasks"].clear()
-            
-            # セッション終了時のLED自動OFF（15秒後）
-            await self._schedule_session_end_led_off(meeting_id)
-            
+
             # クリーンアップ
             if meeting_id in self.session_data:
                 del self.session_data[meeting_id]
@@ -255,68 +251,3 @@ class SessionController:
     async def _classify_realtime_hybrid(self, session_data: dict, text: str, speaker: str, index: int) -> None:
         """レガシー: analysis_handlerに移行済み"""
         await self.analysis_handler.classify_and_send_realtime(session_data, text, speaker, index, force_bedrock=True)
-    
-    async def _check_police_dispatch_trigger(self, session_data: dict, alignment_score: int, text: str, speaker: str, websocket: WebSocket | None) -> None:
-        """レガシー: police_dispatchに移行済み"""
-        await self.police_dispatch.check_and_trigger(session_data, alignment_score, text, speaker)
-    
-    async def _schedule_session_end_led_off(self, meeting_id: str):
-        """
-        セッション終了時のLED自動OFF（15秒後）
-        警察出動LEDとカスタムLEDの両方をOFFにする
-        """
-        async def delayed_led_off():
-            try:
-                await asyncio.sleep(15)  # 15秒待機
-                
-                self.logger.info(f"🔚 セッション終了15秒後 - LED自動OFF開始: meeting_id={meeting_id}")
-                
-                # Lambda関数でLED OFF
-                from backend.services.lambda_client import LambdaClient
-                lambda_client = LambdaClient()
-                
-                # 警察出動LED OFF
-                police_data = {
-                    "meeting_id": meeting_id,
-                    "speaker": "System",
-                    "alignment_score": 100,
-                    "recent_transcript": "セッション終了",
-                    "timestamp": now_iso()
-                }
-                
-                try:
-                    result = await asyncio.to_thread(lambda_client.invoke_police_dispatch_off, police_data)
-                    self.logger.info(f"🔚 警察出動LED OFF完了: {result}")
-                except Exception as e:
-                    self.logger.warning(f"🔚 警察出動LED OFF失敗: {e}")
-                
-                # カスタムLED OFF（複数デバイス対応）
-                custom_devices = [
-                    "4378-7530",  # ログで確認されたデバイス
-                ]
-                
-                for device_id in custom_devices:
-                    try:
-                        # obniz2 Lambda関数を直接呼び出し
-                        import json
-                        payload = {
-                            "url": f"https://obniz.com/obniz/{device_id}/message?data=off"
-                        }
-                        
-                        response = lambda_client.lambda_client.invoke(
-                            FunctionName="obniz2",
-                            InvocationType="Event",  # 非同期
-                            Payload=json.dumps(payload)
-                        )
-                        
-                        self.logger.info(f"🔚 カスタムLED OFF完了 ({device_id}): Status {response['StatusCode']}")
-                    except Exception as e:
-                        self.logger.warning(f"🔚 カスタムLED OFF失敗 ({device_id}): {e}")
-                
-                self.logger.info(f"🔚 セッション終了LED自動OFF完了: meeting_id={meeting_id}")
-                
-            except Exception as e:
-                self.logger.error(f"🔚 セッション終了LED自動OFF失敗: {e}")
-        
-        # バックグラウンドタスクとして実行
-        asyncio.create_task(delayed_led_off())
