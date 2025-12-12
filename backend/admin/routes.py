@@ -27,7 +27,15 @@ def summarize_meeting(meeting_id: str):
 
 @router.post("/obniz2")
 def invoke_obniz(payload: dict):
+    """
+    Result画面でのみ使用するLED制御エンドポイント。
+    許可するのは4378-7530デバイスのON/OFFだけ。
+    """
+    turn_on = payload.get("turn_on")
+    if not isinstance(turn_on, bool):
+        raise HTTPException(status_code=400, detail="turn_on must be a boolean")
+
     try:
-        return lambda_client.invoke_obniz_custom(payload)
+        return lambda_client.trigger_result_led(turn_on)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

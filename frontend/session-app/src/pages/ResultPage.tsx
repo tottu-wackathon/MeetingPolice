@@ -21,20 +21,20 @@ export function ResultPage() {
     const hasInvokedOnRef = useRef(false);
     const hasInvokedOffRef = useRef(false);
 
-    const invokeObniz = async (url: string) => {
+    const invokeObniz = async (turnOn: boolean) => {
         try {
             await fetch('/api/admin/obniz2', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
+                body: JSON.stringify({ turn_on: turnOn })
             });
         } catch (err) {
             console.error('Failed to invoke obniz2:', err);
         }
     };
 
-    const invokeObnizOn = () => invokeObniz('https://obniz.com/obniz/4378-7530/message?data=on');
-    const invokeObnizOff = () => invokeObniz('https://obniz.com/obniz/4378-7530/message?data=off');
+    const invokeObnizOn = () => invokeObniz(true);
+    const invokeObnizOff = () => invokeObniz(false);
 
     useEffect(() => {
         // location.state が undefined でも落ちないようにガード
