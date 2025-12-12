@@ -81,7 +81,7 @@ class AnalysisHandler:
             "category": category_quick,
             "alignment": alignment_quick,
             "method": "keyword",  # キーワードベース
-            "is_final": False  # まだ確定じゃない
+            "is_final": not force_bedrock  # Bedrockに送らない場合はこれを確定扱いにする
         }
 
         # すぐにクライアントに通知
