@@ -130,6 +130,18 @@ class SessionController:
             self.logger.info("アップロードされたアジェンダを使用 meeting_id=%s", meeting_id)
         else:
             agenda_text = meeting.title or ""
+            # フォールバック: 本番.txtのアジェンダを使用（存在する場合）
+            if not agenda_text.strip():
+                try:
+                    from pathlib import Path
+
+                    fallback_path = Path(__file__).resolve().parent.parent.parent / "本番.txt"
+                    if fallback_path.exists():
+                        agenda_text = fallback_path.read_text(encoding="utf-8")
+                        self.logger.info("本番.txtをアジェンダとして使用 meeting_id=%s", meeting_id)
+                except Exception as exc:  # pragma: no cover
+                    self.logger.warning("本番.txt読み込み失敗: %s", exc)
+
             self.logger.info("会議タイトルをアジェンダとして使用 meeting_id=%s", meeting_id)
         
         # セッションデータを初期化（poc_satomin準拠）
