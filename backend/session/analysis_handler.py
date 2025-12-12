@@ -157,8 +157,8 @@ class AnalysisHandler:
                 category_ai = result.get("category", _guess_category(text))
                 alignment_ai = result.get("alignment", 0)
 
-                # Bedrockからのスコアは20〜100%に丸める
-                alignment_ai = max(20, min(100, alignment_ai if isinstance(alignment_ai, (int, float)) else 0))
+                # Bedrockからのスコアは60〜100%に丸める（内容の近さ評価）
+                alignment_ai = max(60, min(100, alignment_ai if isinstance(alignment_ai, (int, float)) else 0))
                 
                 # コメントカテゴリの場合は最低50%を保証
                 if category_ai == "コメント" and alignment_ai < 50:
@@ -191,7 +191,7 @@ class AnalysisHandler:
                 self.logger.warning("⚠️ Bedrockから結果なし、キーワードベースを確定として送信")
                 category_fallback = _guess_category(text)
                 alignment_fallback = self.calculate_alignment(text, session_data["agenda_text"])
-                alignment_fallback = max(20, min(100, alignment_fallback))
+                alignment_fallback = max(60, min(100, alignment_fallback))
                 
                 result_fallback = {
                     "index": index,
