@@ -389,6 +389,12 @@ export function SessionPage() {
     navigate('/result', { state: resultData });
   };
 
+  const wrapTextByLength = (text: string, maxLen: number = 80) => {
+    if (!text) return '';
+    const chunks = text.match(new RegExp(`.{1,${maxLen}}`, 'g'));
+    return chunks ? chunks.join('\n') : text;
+  };
+
   // poc_satominと同じ音声アラート機能
   const playVoiceAlert = (message: string) => {
     if (message === '一致度が低下しています') {
@@ -537,7 +543,7 @@ export function SessionPage() {
   const renderSecurityIndexPanel = () => {
     // Bedrock確定結果のみを会議治安指数に反映（一発話につき1本）
     const bedrockFinals = realtimeClassifications.filter(
-      (item) => item.is_final === true && item.method === 'bedrock'
+      (item) => item.is_final === true && item.method === 'bedrock' && item.text && item.text.length >= 10
     );
 
     const hasData = bedrockFinals.length > 0;
@@ -748,7 +754,9 @@ export function SessionPage() {
                       </span>
                       {isFinal && <span className="pill final-pill">AI確定</span>}
                     </header>
-                    <p>{item.text || '[テキストなし]'}</p>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>
+                      {wrapTextByLength(item.text || '[テキストなし]')}
+                    </p>
                     <small style={{color: '#666', fontSize: '0.7em'}}>
                       DEBUG: text="{item.text}", length={item.text?.length || 0}
                     </small>
