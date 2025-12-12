@@ -82,22 +82,7 @@ class AnalysisHandler:
                     return
         
         self.logger.info(f"📊 Real-time analysis start: {speaker} - {text[:30]}...")
-        # Step 1: キーワードベースの簡易分類を送信（リアルタイム表示用）
-        category_quick = _guess_category(text)
-        alignment_quick = self.calculate_alignment(text, session_data["agenda_text"])
-        result_quick = {
-            "index": index,
-            "text": text,
-            "speaker": speaker,
-            "category": category_quick,
-            "alignment": alignment_quick,
-            "method": "keyword",
-            "is_final": False,
-        }
-        await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
-        self.logger.info(f"📤 WebSocketキューに送信（キーワード速報）: {result_quick}")
-        
-        # Step 2: Bedrockでアジェンダとの一致度を20-100%で採点
+        # Bedrockでアジェンダとの一致度を20-100%で採点（文境界または最終のみ）
         should_run_bedrock = is_final_text or self._is_sentence_boundary(text)
         if should_run_bedrock and force_bedrock:
             try:
