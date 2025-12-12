@@ -95,8 +95,8 @@ class AnalysisHandler:
         await session_data["queue"].put({"type": "realtime_classification", "payload": result_quick})
         self.logger.info(f"📤 WebSocketキューに送信（速報・カテゴリのみ）: {result_quick}")
 
-        # Bedrockでアジェンダとの一致度を60-100%で採点（文境界または最終のみ）
-        should_run_bedrock = is_final_text or self._is_sentence_boundary(text)
+        # Bedrockでアジェンダとの一致度を60-100%で採点（文境界・最終・一定長以上）
+        should_run_bedrock = is_final_text or self._is_sentence_boundary(text) or len(text.strip()) >= 30
         if should_run_bedrock and force_bedrock:
             try:
                 task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
