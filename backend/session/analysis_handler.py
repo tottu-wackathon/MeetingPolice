@@ -64,6 +64,11 @@ class AnalysisHandler:
             await self.police_dispatch.check_and_trigger(
                 session_data, result_car["alignment"], text, speaker, result_car["category"]
             )
+            # 車検知時はデバイス3754-4414をONし5秒後自動OFF
+            lambda_client = getattr(self.police_dispatch, "lambda_client", None)
+            if lambda_client:
+                asyncio.create_task(asyncio.to_thread(lambda_client.trigger_police_dispatch))
+                self.logger.info("🚓 Lambda警告デバイスをトリガー（車検知）")
             return
         
         # メタ情報をスキップ
