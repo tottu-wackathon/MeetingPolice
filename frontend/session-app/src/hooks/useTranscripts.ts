@@ -70,7 +70,8 @@ export function useTranscripts(
             
             if (messageType === 'realtime_classification') {
               console.log('[useTranscripts] Classification payload:', payload.payload);
-              onClassification?.(payload.payload);
+              const classificationPayload = payload?.payload ? { action, ...payload.payload } : undefined;
+              onClassification?.(classificationPayload);
               return;
             }
             

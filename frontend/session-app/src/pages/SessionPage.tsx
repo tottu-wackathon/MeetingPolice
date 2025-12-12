@@ -38,8 +38,23 @@ export function SessionPage() {
   const { transcripts } = useTranscripts(
     session?.meetingId,
     (payload) => {
+      if (!payload) return;
       // リアルタイム分析結果を受信
-      const { index, text, speaker, category, alignment, method, is_final } = payload;
+      const {
+        index,
+        text,
+        speaker,
+        category,
+        alignment,
+        method,
+        is_final,
+        action,
+      } = payload;
+
+      // Bedrockの更新（action=update）を確定扱いにする
+      const isFinal = is_final === true || action === 'update' || method === 'bedrock';
+      const alignmentValue =
+        typeof alignment === 'string' ? parseInt(alignment, 10) || 0 : alignment ?? 0;
       
       setRealtimeClassifications((prev) => {
         // デバッグ用ログ - 受信したpayloadの詳細を表示
@@ -50,9 +65,9 @@ export function SessionPage() {
           textLength: text?.length || 0,
           speaker, 
           category, 
-          alignment, 
+          alignment: alignmentValue,
           method, 
-          is_final 
+          is_final: isFinal,
         });
         
         // textが存在しない場合の警告
@@ -65,7 +80,7 @@ export function SessionPage() {
         const filteredPrev = prev.filter(item => item.index !== index);
         
         // 新しいエントリを追加
-        const newEntry = { index, text, speaker, category, alignment, method, is_final };
+        const newEntry = { index, text, speaker, category, alignment: alignmentValue, method, is_final: isFinal };
         console.log('[SessionPage] Adding new entry:', newEntry);
         
         return [...filteredPrev, newEntry];
