@@ -741,17 +741,30 @@ export function SessionPage() {
               .slice(-10)
               .map((item, arrayIndex) => {
                 const isFinal = item.is_final === true;
+                const showAlignment = isFinal && typeof item.alignment === 'number';
                 const icon = isFinal ? '✅' : '📊';
-                const bgColor = item.alignment >= 50 ? '#4caf50' : item.alignment >= 20 ? '#ff9800' : '#f44336';
+                const bgColor = showAlignment
+                  ? item.alignment >= 50
+                    ? '#4caf50'
+                    : item.alignment >= 20
+                      ? '#ff9800'
+                      : '#f44336'
+                  : '#607d8b';
 
                 return (
                   <article key={`analysis-${item.index}-${item.text.slice(0, 20)}`} className="analysis-item">
                     <header>
                       <strong>{displaySpeaker(item.speaker)}</strong>
                       <span className="pill category-pill">{item.category}</span>
-                      <span className="pill alignment-pill" style={{ backgroundColor: bgColor }}>
-                        {icon} {item.alignment}%
-                      </span>
+                      {showAlignment ? (
+                        <span className="pill alignment-pill" style={{ backgroundColor: bgColor }}>
+                          {icon} {item.alignment}%
+                        </span>
+                      ) : (
+                        <span className="pill final-pill" style={{ backgroundColor: '#607d8b' }}>
+                          解析中
+                        </span>
+                      )}
                       {isFinal && <span className="pill final-pill">AI確定</span>}
                     </header>
                     <p style={{ whiteSpace: 'pre-wrap' }}>
