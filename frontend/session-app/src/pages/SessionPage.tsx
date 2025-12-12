@@ -389,7 +389,7 @@ export function SessionPage() {
     navigate('/result', { state: resultData });
   };
 
-  const wrapTextByLength = (text: string, maxLen: number = 80) => {
+  const wrapTextByLength = (text: string, maxLen: number = 50) => {
     if (!text) return '';
     const chunks = text.match(new RegExp(`.{1,${maxLen}}`, 'g'));
     return chunks ? chunks.join('\n') : text;
