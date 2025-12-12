@@ -68,6 +68,7 @@ export function SessionPage() {
           alignment: alignmentValue,
           method, 
           is_final: isFinal,
+          action,
         });
         
         // textが存在しない場合の警告
@@ -80,7 +81,7 @@ export function SessionPage() {
         const filteredPrev = prev.filter(item => item.index !== index);
         
         // 新しいエントリを追加
-        const newEntry = { index, text, speaker, category, alignment: alignmentValue, method, is_final: isFinal };
+        const newEntry = { index, text, speaker, category, alignment: alignmentValue, method, is_final: isFinal, action };
         console.log('[SessionPage] Adding new entry:', newEntry);
         
         return [...filteredPrev, newEntry];
@@ -517,18 +518,17 @@ export function SessionPage() {
   }, []);
 
   const renderSecurityIndexPanel = () => {
-    // Bedrockで確定した結果のみを使用（is_final: true）
-    const validItems = realtimeClassifications.filter(item => 
-      item.text.length >= 10 && item.is_final === true
+    // Bedrock確定結果のみを会議治安指数に反映（一発話につき1本）
+    const bedrockFinals = realtimeClassifications.filter(
+      (item) => item.is_final === true && item.method === 'bedrock'
     );
 
-    const recent10 = validItems.slice(-10);
-    const hasData = recent10.length > 0;
+    const hasData = bedrockFinals.length > 0;
 
     const padding = 8;
-    const barWidth = hasData ? (100 - padding * 2) / recent10.length : 0;
+    const barWidth = hasData ? (100 - padding * 2) / bedrockFinals.length : 0;
     const bars = hasData
-      ? recent10.map((item, idx) => {
+      ? bedrockFinals.map((item, idx) => {
           const xCenter = padding + idx * barWidth + barWidth * 0.4;
           const x = xCenter - (barWidth * 0.8) / 2;
           const height = Math.max(0, Math.min(100, item.alignment));
@@ -562,17 +562,17 @@ export function SessionPage() {
       return d;
     };
 
-    const weightsForRecent = hasData ? recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1)) : [];
+    const weightsForRecent = hasData ? bedrockFinals.map((_, idx) => (idx >= bedrockFinals.length - 5 ? 3 : 1)) : [];
     const totalWeightForRecent = weightsForRecent.reduce((s, w) => s + w, 0) || 1;
     const avgAlignment = hasData
       ? Math.round(
-          recent10.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
+          bedrockFinals.reduce((sum, item, idx) => sum + item.alignment * weightsForRecent[idx], 0) / totalWeightForRecent
         )
       : 100;
 
     const weightedAvgPoints = hasData
       ? (() => {
-          const weights = recent10.map((_, idx) => (idx >= recent10.length - 5 ? 3 : 1));
+          const weights = bedrockFinals.map((_, idx) => (idx >= bedrockFinals.length - 5 ? 3 : 1));
           const cumulativeWeights: number[] = [];
           let sumW = 0;
           weights.forEach((w) => {
@@ -580,7 +580,7 @@ export function SessionPage() {
             cumulativeWeights.push(sumW);
           });
           let cum = 0;
-          return recent10.map((item, idx) => {
+          return bedrockFinals.map((item, idx) => {
             cum += item.alignment * weights[idx];
             const alignment = cum / (cumulativeWeights[idx] || 1);
             return { alignment };
