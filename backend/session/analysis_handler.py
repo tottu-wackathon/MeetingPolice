@@ -54,7 +54,7 @@ class AnalysisHandler:
                 "speaker": speaker,
                 "category": _guess_category(text),
                 "alignment": 5,
-                "method": "keyword",
+                "method": "bedrock",  # グラフ反映のため確定扱い
                 "is_final": True,
             }
             queue_message_car = {"type": "realtime_classification", "action": "update", "payload": result_car}
