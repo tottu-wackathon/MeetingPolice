@@ -185,10 +185,11 @@ class AnalysisHandler:
                 
                 self.logger.info(f"✅ Bedrock analysis complete: {speaker} - {text[:30]}... → [{category_ai}] {alignment_ai}%")
                 
-                # 警察出動チェック（Bedrockで確定した結果のみ）
-                await self.police_dispatch.check_and_trigger(
-                    session_data, alignment_ai, text, speaker, category_ai
-                )
+                # 警察出動チェック（5%のみトリガー）
+                if alignment_ai <= 5:
+                    await self.police_dispatch.check_and_trigger(
+                        session_data, alignment_ai, text, speaker, category_ai
+                    )
             else:
                 # Bedrockが失敗したら、キーワードベースの結果を「確定」として送る
                 self.logger.warning("⚠️ Bedrockから結果なし、キーワードベースを確定として送信")
@@ -209,10 +210,11 @@ class AnalysisHandler:
                 await session_data["queue"].put({"type": "realtime_classification", "action": "update", "payload": result_fallback})
                 self.logger.info(f"✅ キーワード分析確定: {speaker} - {text[:30]}... → [{category_fallback}] {alignment_fallback}%")
                 
-                # 警察出動チェック（フォールバック結果）
-                await self.police_dispatch.check_and_trigger(
-                    session_data, alignment_fallback, text, speaker, category_fallback
-                )
+                # 警察出動チェック（フォールバック結果、5%のみ）
+                if alignment_fallback <= 5:
+                    await self.police_dispatch.check_and_trigger(
+                        session_data, alignment_fallback, text, speaker, category_fallback
+                    )
         
         except Exception as e:
             self.logger.error(f"❌ Bedrock分析失敗: {e}")
