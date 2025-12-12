@@ -28,7 +28,7 @@ class LambdaClient:
     RESULT_DEVICE_OFF_URL = "https://obniz.com/obniz/4378-7530/message?data=off"
 
     AUTO_OFF_DELAY_SECONDS = 5
-    POLICE_COOLDOWN_SECONDS = 30
+    POLICE_COOLDOWN_SECONDS = 120
 
     def __init__(self):
         self.settings = get_settings()

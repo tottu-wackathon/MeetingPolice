@@ -44,6 +44,26 @@ class AnalysisHandler:
         if self._should_skip_analysis(text, guessed_category):
             self.logger.info(f"分析スキップ: '{text_stripped}' → カテゴリ: {guessed_category}")
             return
+
+        # 🚗 特定キーワード（車）が含まれている場合は即確定で低一致度扱い
+        if "車" in text:
+            result_car = {
+                "index": index,
+                "text": text,
+                "speaker": speaker,
+                "category": _guess_category(text),
+                "alignment": 5,
+                "method": "keyword",
+                "is_final": True,
+            }
+            queue_message_car = {"type": "realtime_classification", "action": "update", "payload": result_car}
+            await session_data["queue"].put(queue_message_car)
+            self.logger.info(f"🚗 車キーワード検出: 即確定 alignment=5% text='{text[:30]}...'")
+            # 警察出動判定にも反映
+            await self.police_dispatch.check_and_trigger(
+                session_data, result_car["alignment"], text, speaker, result_car["category"]
+            )
+            return
         
         # メタ情報をスキップ
         if text.startswith("Agenda topic:"):
