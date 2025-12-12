@@ -28,7 +28,8 @@ class AnalysisHandler:
         text: str, 
         speaker: str, 
         index: int,
-        force_bedrock: bool = True
+        force_bedrock: bool = True,
+        is_final_text: bool = False,
     ) -> None:
         """
         リアルタイム分析を実行（poc_satomin準拠のハイブリッドアプローチ）
@@ -97,13 +98,19 @@ class AnalysisHandler:
         self.logger.info(f"📤 WebSocketキューに送信（キーワード速報）: {result_quick}")
         
         # Step 2: Bedrockでアジェンダとの一致度を20-100%で採点
-        try:
-            task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
-            session_data["pending_bedrock_tasks"].add(task)
-            task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
-            self.logger.info(f"📊 Bedrock分析開始: '{text[:20]}...' ({len(text)}文字)")
-        except Exception as e:
-            self.logger.warning(f"Failed to create Bedrock task: {e}")
+        should_run_bedrock = is_final_text or self._is_sentence_boundary(text)
+        if should_run_bedrock and force_bedrock:
+            try:
+                task = asyncio.create_task(self._classify_with_bedrock_session(session_data, text, speaker, index))
+                session_data["pending_bedrock_tasks"].add(task)
+                task.add_done_callback(lambda t: session_data["pending_bedrock_tasks"].discard(t))
+                self.logger.info(f"📊 Bedrock分析開始: '{text[:20]}...' ({len(text)}文字) is_final={is_final_text}")
+            except Exception as e:
+                self.logger.warning(f"Failed to create Bedrock task: {e}")
+        else:
+            self.logger.debug(
+                f"📊 Bedrock分析保留: is_final={is_final_text}, boundary={self._is_sentence_boundary(text)}, force={force_bedrock}"
+            )
     
     async def _classify_with_bedrock_session(
         self, 
@@ -257,6 +264,15 @@ class AnalysisHandler:
         alignment = min(100, int(30 + (match_ratio * 70)))  # 30%〜100%の範囲
         
         return alignment
+
+    def _is_sentence_boundary(self, text: str) -> bool:
+        """文末が区切り（改行/句読点/終端記号）のとき True"""
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if "\n" in text:
+            return True
+        return stripped.endswith(("。", "！", "？", ".", "!", "?"))
     
     def _should_skip_analysis(self, text: str, category: str) -> bool:
         """

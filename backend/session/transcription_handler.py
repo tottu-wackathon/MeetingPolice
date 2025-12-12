@@ -329,7 +329,8 @@ class TranscriptionHandler:
             # 即座に分析を実行（キーワードベースは常に実行）
             asyncio.create_task(analysis_handler.classify_and_send_realtime(
                 session_data, transcript, speaker_label, unique_index, 
-                force_bedrock=should_send_bedrock
+                force_bedrock=should_send_bedrock,
+                is_final_text=not is_partial
             ))
             
 
